@@ -10,3 +10,7 @@ add_executable(TER_Graphes_Planaires graph.c
         planar_graph_creator.h
         graph.h
         main.c)
+
+target_link_libraries(TER_Graphes_Planaires m)
+
+

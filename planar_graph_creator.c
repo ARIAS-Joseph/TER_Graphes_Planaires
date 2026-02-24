@@ -117,12 +117,14 @@ void create_tree(Graph* g) {
     while (!unique_label && cnt < 100000) {
 
         for (int i = 0; i < g->nb_vertex; i++) {
-            if (g->vertices[i].label != g->vertices[(i+1)%g->nb_vertex].label) {
-                int added = try_add_edge(g, i, (i+1)%g->nb_vertex);
+            int v = rand() % g->nb_vertex;
+            if (g->vertices[i].label != g->vertices[v].label) {
+                int added = try_add_edge(g, i, v);
                 if (added) {
                     spread_label(g, g->nb_edges-1);
                 } else {
-                    int j = 0;
+                    int j = rand() % g->nb_vertex;
+                    int count = 0;
                     while (j < g->nb_vertex && !added) {
                         if (g->vertices[i].label != g->vertices[j].label) {
                             added = try_add_edge(g, i, j);
@@ -131,7 +133,13 @@ void create_tree(Graph* g) {
                                 break;
                             }
                         }
-                        j++;
+                        if (count < 10 ) {
+                            count++;
+                            j = rand() % g->nb_vertex;
+                        } else if (count == 10 ) {
+                            j = 0;
+                            count++;
+                        } else j++;
                     }
                 }
             }
