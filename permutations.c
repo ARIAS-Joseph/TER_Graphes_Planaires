@@ -1,5 +1,7 @@
 #include "permutations.h"
 
+#include <stdlib.h>
+
 /**
  * @brief Give the permutation corresponding to a given inversion table.
  *
@@ -48,4 +50,46 @@ int next_inversion_table(int *inv, const int n) {
     }
 
     return 0;
+}
+
+void generate_random_inversion_table(int *inv, const int n) {
+    for (int i = 0; i < n; i++) {
+        inv[i] = rand() % (n - 1 - i);
+    }
+}
+
+/*
+ * @brief Create an array containing all pairs of distinct vertices possibles of a graph with
+ * nb_vertex vertices. he pairs are stored in the array perm, where perm[2*k] and perm[2*k+1] are
+ * the two vertices of the k-th edge. The edges are ordered in lexicographic order, meaning that the
+ * pairs are sorted first by the first vertex and then by the second vertex.
+ *
+ * @param nb_vertex The number of vertices in the complete graph.
+ * @param perm The array where the pairs of vertices will be stored. It should be an array of size
+ * nb_vertex*(nb_vertex-1).
+ */
+void create_all_edges(const int nb_vertex, int* perm) {
+    int k = 0;
+    for (int i = 0; i < nb_vertex; i++) {
+        for (int j = i + 1; j < nb_vertex; j++) {
+            perm[k++] = i;
+            perm[k++] = j;
+        }
+    }
+}
+
+void fisher_yates_shuffle(int* array, const int n) {
+    for (int i = n - 1; i > 0; i -= 2) {
+
+        const int pair = rand() % ((i + 1) / 2);
+        const int j = 2 * pair + 1;
+
+        const int temp = array[i];
+        array[i] = array[j];
+        array[j] = temp;
+
+        const int temp2 = array[i - 1];
+        array[i - 1] = array[j - 1];
+        array[j - 1] = temp2;
+    }
 }
