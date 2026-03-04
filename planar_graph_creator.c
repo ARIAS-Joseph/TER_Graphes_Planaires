@@ -1,6 +1,7 @@
 #include "planar_graph_creator.h"
 #include <math.h>
 #include "graph.h"
+#include "permutations.h"
 
 /**
  * @brief Check if two edges intersect in the plane.
@@ -14,7 +15,7 @@
  * @param g Pointer to the graph structure, used to access the vertices of the edges.
  * @return 1 if the edges intersect, 0 otherwise.
  */
-int intersect(Edge *a, Edge *b, const Graph *g) {
+int intersect(const Edge *a, const Edge *b, const Graph *g) {
 
     // Check if the edges share a vertex, in which case they do not intersect
     if (a->u == b->u || a->u == b->v || a->v == b->u || a->v == b->v) {
@@ -53,6 +54,8 @@ int intersect(Edge *a, Edge *b, const Graph *g) {
  *
  * @param g Pointer to the graph structure where the edge will be added if it does not create
  * intersections.
+ * @param v1
+ * @param v2
  * @return 1 if the edge was added successfully, 0 otherwise.
  */
 int try_add_edge(Graph* g, const int v1, const int v2) {
@@ -106,43 +109,28 @@ void spread_label(Graph* g, const int edge_id) {
     }
 }
 
-void create_tree(Graph* g) {
-
+int create_tree(Graph* g, const int* perm) {
     for (int i = 0; i < g->nb_vertex; i++) {
         g->vertices[i].label = i;
     }
 
     int unique_label = 0;
-    int cnt = 0;
-    while (!unique_label && cnt < 100000) {
+    int edges_added = 0;
+    int perm_index = 0;
 
-        for (int i = 0; i < g->nb_vertex; i++) {
-            int v = rand() % g->nb_vertex;
-            if (g->vertices[i].label != g->vertices[v].label) {
-                int added = try_add_edge(g, i, v);
-                if (added) {
-                    spread_label(g, g->nb_edges-1);
-                } else {
-                    int j = rand() % g->nb_vertex;
-                    int count = 0;
-                    while (j < g->nb_vertex && !added) {
-                        if (g->vertices[i].label != g->vertices[j].label) {
-                            added = try_add_edge(g, i, j);
-                            if (added) {
-                                spread_label(g, g->nb_edges-1);
-                                break;
-                            }
-                        }
-                        if (count < 10 ) {
-                            count++;
-                            j = rand() % g->nb_vertex;
-                        } else if (count == 10 ) {
-                            j = 0;
-                            count++;
-                        } else j++;
-                    }
-                }
-            }
+    while (edges_added < g->nb_vertex - 1 && perm_index + 1 < g->nb_vertex * (g->nb_vertex - 1)) {
+
+        int v1 = perm[perm_index++];
+        int v2 = perm[perm_index++];
+
+        while (g->vertices[v1].label == g->vertices[v2].label) {
+            v1 = perm[perm_index++];
+            v2 = perm[perm_index++];
+        }
+
+        if (try_add_edge(g, v1, v2)) {
+            spread_label(g, g->nb_edges - 1);
+            edges_added++;
         }
 
         unique_label = 1;
@@ -152,11 +140,15 @@ void create_tree(Graph* g) {
                 break;
             }
         }
-        cnt++;
     }
+
     if (!unique_label) {
-        fprintf(stderr, "Failed to create a tree after %d attempts. The graph may be not connex.");
+        fprintf(stderr, "Error: Failed to create a tree in create_tree: unique label not "
+                        "achieved.\n");
     }
+
+    return perm_index;
+
 }
 
 /**
@@ -196,29 +188,33 @@ Graph* create_outer_planar_graph(const int nb_vertex, int nb_edges_target) {
     // n edges in the cycle, so we can only add at most 2n - 6 more edges
     nb_edges_target = nb_edges_target < 2 * nb_vertex - 6 ? nb_edges_target : 2 * nb_vertex - 6;
 
-    // Try to add more edges until we reach the target or exhaust attempts
-    const int MAX_ATTEMPTS = nb_edges_target * 10;
     int attempts = 0;
+    int *perm = malloc(g->nb_vertex * (g->nb_vertex - 1) * sizeof(int));
+    create_all_edges(g->nb_vertex, perm);
+    fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
 
-    while (g->nb_edges < nb_edges_target && attempts < MAX_ATTEMPTS) {
+    while (g->nb_edges < nb_edges_target && attempts < (g->nb_vertex * (g->nb_vertex - 1))/2) {
+        int v1 = perm[2*attempts];
+        int v2 = perm[2*attempts + 1];
         attempts++;
-        int v1 = rand() % g->nb_vertex;
-        int v2 = rand() % g->nb_vertex;
 
-        while (v1 == v2) {
-            v1 = rand() % g->nb_vertex;
-            v2 = rand() % g->nb_vertex;
+        while (v1 == (v2 + 1) % g->nb_vertex || v2 == (v1 + 1) % g->nb_vertex) {
+            v1 = perm[2*attempts];
+            v2 = perm[2*attempts + 1];
+                attempts++;
+                if (attempts >= (g->nb_vertex * (g->nb_vertex - 1))/2) {
+                    break;
+                }
         }
-        const int added = try_add_edge(g, v1, v2);
-        if (added) {
-            attempts = 0; // Reset attempts after a successful addition
-        }
+
+        try_add_edge(g, v1, v2);
     }
 
     return g;
 }
 
 Graph* create_planar_graph(const int nb_vertex, int nb_edges_target) {
+
     Graph *g = create_graph();
 
     // Create vertices in a nb_vertex*100 * nb_vertex*100 grid
@@ -242,31 +238,24 @@ Graph* create_planar_graph(const int nb_vertex, int nb_edges_target) {
         }
     }
 
-    create_tree(g);
+    int* perm = malloc(g->nb_vertex * (g->nb_vertex - 1) * sizeof(int));
+    create_all_edges(g->nb_vertex, perm);
+    fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
+
+    int perm_index = create_tree(g, perm);
 
     // The maximum number of edges in a planar graph with n vertices is 3n - 6, and we already have
     // n-1 edges in the cycle, so we can only add at most 2n - 5 more edges
     nb_edges_target = nb_edges_target < 2 * nb_vertex - 5 ? nb_edges_target : 2 * nb_vertex - 5;
 
-    // Try to add more edges until we reach the target or exhaust attempts
-    const int MAX_ATTEMPTS = nb_edges_target * 10;
-    int attempts = 0;
+    while (g->nb_edges < nb_edges_target && perm_index < g->nb_vertex * (g->nb_vertex - 1)) {
+        const int v1 = perm[perm_index++];
+        const int v2 = perm[perm_index++];
 
-    while (g->nb_edges < nb_edges_target && attempts < MAX_ATTEMPTS) {
-        attempts++;
-        int v1 = rand() % g->nb_vertex;
-        int v2 = rand() % g->nb_vertex;
-
-        while (v1 == v2) {
-            v1 = rand() % g->nb_vertex;
-            v2 = rand() % g->nb_vertex;
-        }
-        const int added = try_add_edge(g, v1, v2);
-        if (added) {
-            attempts = 0; // Reset attempts after a successful addition
-        }
+        try_add_edge(g, v1, v2);
     }
 
+    free(perm);
     return g;
 }
 
