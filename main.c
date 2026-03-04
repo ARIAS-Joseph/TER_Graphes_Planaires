@@ -33,11 +33,10 @@ void test_multiple_horton(Graph* g, const char* filename) {
 
 void test_planar_graph() {
     const int nb_vertex = 50;
-    const int nb_edges_max = 10000;
-    Graph* planar = create_planar_graph(nb_vertex, nb_edges_max);
+    Graph* planar = create_planar_graph(nb_vertex, 10000);
     test_multiple_horton(planar, "planar_test.txt");
     free_graph(planar);
-    Graph* outer_planar = create_outer_planar_graph(nb_vertex, nb_edges_max);
+    Graph* outer_planar = create_outer_planar_graph(nb_vertex, 70);
     test_multiple_horton(outer_planar, "outer_planar_test.txt");
     free_graph(outer_planar);
 
@@ -73,10 +72,16 @@ void test_tree() {
             i++;
         }
     }
-    create_tree(g);
+
+    int *perm = malloc(g->nb_vertex * (g->nb_vertex - 1) * sizeof(int));
+    create_all_edges(g->nb_vertex, perm);
+    fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
+
+    create_tree(g, perm);
 
     save_graph(g, "tree_graph.txt");
     free_graph(g);
+    free(perm);
 }
 
 void test_permutations() {
@@ -113,12 +118,47 @@ void test_permutations() {
     free(perm);
 }
 
+void test_all_edges_creation() {
+    const int nb_vertex = 5;
+    int *perm = malloc(nb_vertex * (nb_vertex - 1) * sizeof(int));
+    create_all_edges(nb_vertex, perm);
+    printf("All edges for %d vertices:\n", nb_vertex);
+    for (int i = 0; i < nb_vertex * (nb_vertex - 1); i += 2) {
+        printf("Edge: (%d, %d)\n", perm[i], perm[i + 1]);
+    }
+    free(perm);
+}
+
+void test_fisher_yates() {
+    const int n = 10;
+    int *array = malloc(n * sizeof(int));
+    for (int i = 0; i < n; i++) {
+        array[i] = i;
+    }
+    printf("Original array: [");
+    for (int i = 0; i < n; i++) {
+        printf("%d ", array[i]);
+    }
+    printf("]\n");
+
+    fisher_yates_shuffle(array, n);
+    printf("Shuffled array: [");
+    for (int i = 0; i < n; i++) {
+        printf("%d ", array[i]);
+    }
+    printf("]\n");
+
+    free(array);
+}
+
 int main() {
     srand(time(NULL));
     test_permutations();
-    test_tree();
-    test_planar_circle();
-    test_planar_graph();
+    // test_tree();
+    // test_planar_circle();
+    // test_planar_graph();
+    //test_all_edges_creation();
+    //test_fisher_yates();
 
     return 0;
 }
