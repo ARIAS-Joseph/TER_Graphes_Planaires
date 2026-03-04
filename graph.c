@@ -153,7 +153,7 @@ Graph *create_graph() {
     }
 
     graph->capacity_horton_cycles = 4;
-    graph->horton_cycles = malloc(graph->capacity_horton_cycles * sizeof(Cycle));
+    graph->horton_cycles = malloc(graph->capacity_horton_cycles * sizeof(Path));
     if (graph->horton_cycles == NULL) {
         free(graph->edges);
         free(graph->neighbors);
@@ -219,20 +219,21 @@ void compute_all_shortest_paths(const Graph *g) {
         int front = 0, rear = 1; // Pointers for the front and rear of the queue
         queue[front] = s;
         g->distances[(s * g->nb_vertex) + s] = 0; // Distance from s to itself is 0
+        g->predecessors[s * g->nb_vertex + s] = s;
 
         // While the queue is not empty, we process the vertices in FIFO order
         while (front < rear) {
-            int u =  queue[front]; // Get the vertex at the front of the queue
+            const int u =  queue[front]; // Get the vertex at the front of the queue
             front++;
 
             // For each neighbor v of u, we check if we can improve the distance to v through u,
             // and if so, we update the distance, the distance_label, and the predecessor of v
             for (int i = 0; i < g->neighbors[u].count; i++) {
-                int v = g->neighbors[u].neighbors[i];
-                int edge_index = g->edge_indices[(u * g->nb_vertex) + v];
+                const int v = g->neighbors[u].neighbors[i];
+                const int edge_index = g->edge_indices[(u * g->nb_vertex) + v];
 
                 // Get the label of the edge (u,v)
-                int current_edge_label = g->edges[edge_index].label;
+                const int current_edge_label = g->edges[edge_index].label;
 
                 // If v has not been visited yet
                 if (g->distances[s * g->nb_vertex + v] == -1) {
@@ -249,19 +250,11 @@ void compute_all_shortest_paths(const Graph *g) {
                     queue[rear] = v;
                     rear++;
                 }
-                // If v has already been visited and the distance from s to v through u is the same
-                // as the currently known distance from s to v
-                else if (g->distances[s * g->nb_vertex + v] == g->distances[s * g->nb_vertex + u] +
-                         1) {
-                    // If the distance_label of the path from s to v through u (which is the
-                    // distance_label of u plus the label of the edge (u,v)) is smaller than the
-                    // currently known distance_label of v
-                    if (distance_label[u] + current_edge_label < distance_label[v]) {
-                        // Update the distance_label of v to be the distance_label of u plus the
-                        // label of the edge (u,v)
-                        distance_label[v] = distance_label[u] + current_edge_label;
-                        g->predecessors[s * g->nb_vertex + v] = u;
-                    }
+                if (g->distances[s * g->nb_vertex + v] == -1) {
+                    g->distances[s * g->nb_vertex + v] = g->distances[s * g->nb_vertex + u] + 1;
+                    distance_label[v] = distance_label[u] + current_edge_label;
+                    g->predecessors[s * g->nb_vertex + v] = u;
+                    queue[rear++] = v;
                 }
             }
         }
@@ -273,92 +266,66 @@ void compute_all_shortest_paths(const Graph *g) {
 
 }
 
-
-/**
- * @brief Create a cycle by combining the paths from a root vertex r to two vertices u and v
- * with the edge (u,v).
- *
- * @param g Pointer to the graph structure for which to create the cycle.
- * @param r ID of the root vertex from which the paths to u and v are taken.
- * @param u ID of the vertex u.
- * @param v ID of the vertex v.
- * @return The struct representing the created cycle.
- */
-Cycle create_cycle(const Graph *g, const int r, const int u, const int v) {
+Path create_path(const Graph *g, const int u, const int v) {
     if (g->predecessors == NULL || g->edges == NULL) {
         perror(
-            "The function create_cycle was called but the shortest paths have not been "
+            "The function create_path was called but the shortest paths have not been "
             "computed");
         exit(1);
     }
 
-    Cycle c;
-    c.length = 0;
-    c.weight = 0;
-    c.edges_ids = calloc(g->nb_edges, sizeof(uint32_t)); // Initialize the
+    Path p;
+    p.length = 0;
+    p.edges_ids = calloc(g->nb_edges, sizeof(uint32_t)); // Initialize the
     // edges_ids array with 0s
-    if (c.edges_ids == NULL) {
-        perror("Failed to allocate memory for edges_ids in create_cycle");
+    if (p.edges_ids == NULL) {
+        perror("Failed to allocate memory for edges_ids in create_path");
         exit(1);
     }
 
-    int edge_index = g->edge_indices[u * g->nb_vertex + v];
-    if (edge_index == -1) {
-        free(c.edges_ids);
-        perror(
-            "No edge between u and v in create_cycle, should not happen if the function is "
-            "called correctly");
+    p.vertices_ids = calloc(g->nb_vertex, sizeof(uint32_t));
+    if (p.vertices_ids == NULL) {
+        free(p.edges_ids);
+        perror("Failed to allocate memory for vertices_ids in create_path");
         exit(1);
     }
 
-    c.edges_ids[edge_index] = 1; // Add the edge (u,v) to the cycle
-    c.weight += g->edges[edge_index].weight; // Add the weight of the edge (u,v) to the cycle's
-    // weight
-    c.length++;
+    int current = v;
+    p.vertices_ids[v] = 1;
+    p.vertices_ids[u] = 1;
 
-    // Add the edges from the path from r to u and r to v to the cycle
-    const int *u_v[2] = {&u, &v};
-    for (int i = 0; i < 2; i++) {
-        int current = *u_v[i];
-
-        while (current != r) {
-            const int predecessor = g->predecessors[r * g->nb_vertex + current];
-            if (predecessor == -1) {
-                free(c.edges_ids);
-                fprintf(
-                    stderr,
-                    "No predecessor for %d in the path from %d to %d in create_cycle, should not happen if the function is called correctly",
-                    current, r, *u_v[i]);
-                exit(1);
-            }
-
-            edge_index = g->edge_indices[current * g->nb_vertex + predecessor];
-            if (edge_index == -1) {
-                free(c.edges_ids);
-                fprintf(
-                    stderr,
-                    "No edge between %d and its predecessor %d in create_cycle, should not happen if the function is called correctly",
-                    current, predecessor);
-                exit(1);
-            }
-
-            c.edges_ids[edge_index] ^= 1; // Addition modulo 2: if the edge was not in the cycle,
-            // we add it; if it was already in the cycle, we remove it
-
-            // If the edge was not already in the cycle, we add it to the length
-            if (c.edges_ids[edge_index] == 1) {
-                c.length++;
-                c.weight += g->edges[edge_index].weight; // Add the weight of the edge to the
-                // cycle's weight
-            } else {
-                // If the edge was already in the cycle, we remove it from the length and weight
-                c.length--;
-                c.weight -= g->edges[edge_index].weight;
-            }
-            current = predecessor; // Move to the predecessor for the next iteration
+    while (current != u) {
+        const int predecessor = g->predecessors[u * g->nb_vertex + current];
+        if (predecessor == -1) {
+            free(p.edges_ids);
+            free(p.vertices_ids);
+            fprintf(
+                stderr,
+                "No predecessor for %d in the path from %d to %d in create_path, should not "
+                "happen if the function is called correctly",
+                current, u, v);
+            exit(1);
         }
+
+        const int edge_index = g->edge_indices[current * g->nb_vertex + predecessor];
+        if (edge_index == -1) {
+            free(p.edges_ids);
+            free(p.vertices_ids);
+            fprintf(
+                stderr,
+                "No edge between %d and its predecessor %d in create_path, should not happen "
+                "if the function is called correctly",
+                current, predecessor);
+            exit(1);
+        }
+
+        p.edges_ids[edge_index] = 1; // Add the edge to the path
+        p.vertices_ids[g->edges[edge_index].u] = 1;
+        p.vertices_ids[g->edges[edge_index].v] = 1;
+        p.length++;
+        current = predecessor; // Move to the predecessor for the next iteration
     }
-    return c;
+    return p;
 }
 
 /**
@@ -371,11 +338,11 @@ Cycle create_cycle(const Graph *g, const int r, const int u, const int v) {
  * @param g Pointer to the graph structure where the cycle will be added.
  * @param c The cycle to be added to the list of Horton cycles.
  */
-void add_horton_cycle(Graph *g, const Cycle c) {
+void add_horton_cycle(Graph *g, const Path c) {
     // Double the capacity of the horton_cycles array if the current capacity is reached and reallocate memory
     if (g->nb_horton_cycles == g->capacity_horton_cycles) {
         const int new_cap = g->capacity_horton_cycles * 2; // double the capacity
-        Cycle *tmp = realloc(g->horton_cycles, new_cap * sizeof(Cycle));
+        Path *tmp = realloc(g->horton_cycles, new_cap * sizeof(Path));
         if (!tmp) {
             perror("Failed to reallocate memory for Graph.horton_cycles in add_horton_cycle");
             exit(1);
@@ -405,25 +372,76 @@ void find_horton_cycles(Graph *g) {
     }
 
     // For each vertex r
-    for (int r = 0; r < g->nb_vertex; r++) {
+    for (int v = 0; v < g->nb_vertex; v++) {
+
         // For each edge (u,v)
         for (int e = 0; e < g->nb_edges; e++) {
-            const int u = g->edges[e].u;
-            const int v = g->edges[e].v;
+            const int x = g->edges[e].u;
+            const int y = g->edges[e].v;
 
-            const int p_u = g->predecessors[r * g->nb_vertex + u]; // predecessor of u in the
+            if (x == v || y == v) continue;
+
+            const int pred_x = g->predecessors[v * g->nb_vertex + x]; // predecessor of u in the
             // shortest path from r to u
-            const int p_v = g->predecessors[r * g->nb_vertex + v]; // predecessor of v in the
+            const int pred_y = g->predecessors[v * g->nb_vertex + y]; // predecessor of v in the
             // shortest path from r to v
 
             // If there is no path from r to u or from r to v, we cannot create a cycle with the
             // edge (u,v)
-            if (p_u == -1 || p_v == -1) continue;
+            if (pred_x == -1 || pred_y == -1) {
+                fprintf(stderr, "No path from %d to %d or from %d to %d, skipping edge (%d,%d)"
+                                " for root %d\n", v, x, v, y, x, y, v);
+                continue;
+            }
 
-            // If (u,v) is not part of the path from r to u and not part of the path from r to v,
-            // then we can create a cycle by combining these two paths with the edge (u,v)
-            if (p_u != v && p_v != u) {
-                const Cycle c = create_cycle(g, r, u, v);
+            const Path path_v_to_x = create_path(g, v, x);
+            const Path path_v_to_y = create_path(g, v, y);
+
+            uint32_t *expected = calloc(g->nb_vertex, sizeof(uint32_t));
+            if (!expected) {
+                perror("Failed to allocate memory for expected in find_horton_cycles");
+                exit(1);
+            }
+            expected[v] = 1;
+
+            uint32_t *actual = calloc(g->nb_vertex, sizeof(uint32_t));
+            if (!actual) {
+                free(expected);
+                perror("Failed to allocate memory for actual in find_horton_cycles");
+                exit(1);
+            }
+
+            for (int i = 0; i < g->nb_vertex; i++) {
+                actual[i] = path_v_to_x.vertices_ids[i] && path_v_to_y.vertices_ids[i];
+            }
+
+            if (memcmp(expected, actual, g->nb_vertex * sizeof(uint32_t)) == 0) {
+                Path c;
+                uint32_t *edges_of_c = calloc(g->nb_edges, sizeof(uint32_t));
+                uint32_t *vertices_of_c = calloc(g->nb_vertex, sizeof(uint32_t));
+                if (!edges_of_c) {
+                    free(expected);
+                    free(actual);
+                    perror("Failed to allocate memory for edges_of_c in find_horton_cycles");
+                    exit(1);
+                }
+                if (!vertices_of_c) {
+                    free(expected);
+                    free(actual);
+                    free(edges_of_c);
+                    perror("Failed to allocate memory for vertices_of_c in find_horton_cycles");
+                    exit(1);
+                }
+                for (int i = 0; i < g->nb_edges; i++) {
+                    edges_of_c[i] = path_v_to_x.edges_ids[i] ^ path_v_to_y.edges_ids[i];
+                }
+                for (int i = 0; i < g->nb_vertex; i++) {
+                    vertices_of_c[i] = path_v_to_x.vertices_ids[i] ^ path_v_to_y.vertices_ids[i];
+                }
+                c.edges_ids = edges_of_c;
+                c.edges_ids[e] = 1;
+                c.vertices_ids = vertices_of_c;
+                c.length = path_v_to_x.length + path_v_to_y.length + 1;
                 add_horton_cycle(g, c);
             }
         }
@@ -444,8 +462,8 @@ static int nb_edges_for_qsort = 0;
  * @return Negative value if c1 < c2, positive value if c1 > c2, 0 if c1 == c2 for sorting purposes.
  */
 int compare_cycles(const void *a, const void *b) {
-    const Cycle *c1 = a;
-    const Cycle *c2 = b;
+    const Path *c1 = a;
+    const Path *c2 = b;
 
     // First criterion: compare by length
     if (c1->length != c2->length) return c1->length - c2->length;
@@ -468,7 +486,7 @@ void order_horton_cycles(const Graph *g) {
     if (g->nb_horton_cycles > 1) {
         qsort(g->horton_cycles,
               g->nb_horton_cycles,
-              sizeof(Cycle),
+              sizeof(Path),
               compare_cycles);
     }
 }
@@ -481,7 +499,7 @@ void order_horton_cycles(const Graph *g) {
  * @param nb_edges Number of edges in the graph
  * @return 1 if the two cycles are the same, 0 otherwise.
  */
-int are_same_cycles(const Cycle *c1, const Cycle *c2, const int nb_edges) {
+int are_same_cycles(const Path *c1, const Path *c2, const int nb_edges) {
     if (c1->length != c2->length) return 0;
     return memcmp(c1->edges_ids, c2->edges_ids, nb_edges * sizeof(uint32_t)) == 0;
 }
@@ -518,8 +536,8 @@ int are_same_minimal_bases(const void *a, const void *b, const int nb_edges,
     const Minimal_basis *mb2 = b;
 
     // Create temporary sorted copies of both bases
-    Cycle *sorted1 = malloc(basis_dimension * sizeof(Cycle));
-    Cycle *sorted2 = malloc(basis_dimension * sizeof(Cycle));
+    Path *sorted1 = malloc(basis_dimension * sizeof(Path));
+    Path *sorted2 = malloc(basis_dimension * sizeof(Path));
     if (!sorted1 || !sorted2) {
         free(sorted1);
         free(sorted2);
@@ -530,7 +548,6 @@ int are_same_minimal_bases(const void *a, const void *b, const int nb_edges,
     // Copy and allocate edges_ids for sorted1
     for (int i = 0; i < basis_dimension; i++) {
         sorted1[i].length = mb1->cycles[i].length;
-        sorted1[i].weight = mb1->cycles[i].weight;
         sorted1[i].edges_ids = malloc(nb_edges * sizeof(uint32_t));
         if (!sorted1[i].edges_ids) {
             for (int j = 0; j < i; j++) free(sorted1[j].edges_ids);
@@ -545,7 +562,6 @@ int are_same_minimal_bases(const void *a, const void *b, const int nb_edges,
     // Copy and allocate edges_ids for sorted2
     for (int i = 0; i < basis_dimension; i++) {
         sorted2[i].length = mb2->cycles[i].length;
-        sorted2[i].weight = mb2->cycles[i].weight;
         sorted2[i].edges_ids = malloc(nb_edges * sizeof(uint32_t));
         if (!sorted2[i].edges_ids) {
             for (int j = 0; j < i; j++) free(sorted2[j].edges_ids);
@@ -560,8 +576,8 @@ int are_same_minimal_bases(const void *a, const void *b, const int nb_edges,
 
     nb_edges_for_qsort = nb_edges; // Set the global variable for qsort comparison
     // Sort the cycles in both bases by their edges_ids
-    qsort(sorted1, basis_dimension, sizeof(Cycle), compare_cycles);
-    qsort(sorted2, basis_dimension, sizeof(Cycle), compare_cycles);
+    qsort(sorted1, basis_dimension, sizeof(Path), compare_cycles);
+    qsort(sorted2, basis_dimension, sizeof(Path), compare_cycles);
 
     // Compare sorted cycles
     int result = 1;
@@ -650,7 +666,7 @@ void greedy_cycle_cover(Graph *g) {
     }
 
     // Array to store the cycles of the minimal cycle basis
-    Cycle *mcb = calloc(g->nb_horton_cycles, sizeof(Cycle));
+    Path *mcb = calloc(g->nb_horton_cycles, sizeof(Path));
     if (mcb == NULL) {
         perror("Failed to allocate memory for mcb in greedy_cycle_cover");
         exit(1);
@@ -661,7 +677,7 @@ void greedy_cycle_cover(Graph *g) {
 
     // For each cycle in the sorted list of Horton cycles
     for (int i = 0; i < g->nb_horton_cycles; i++) {
-        const Cycle candidate = g->horton_cycles[i];
+        const Path candidate = g->horton_cycles[i];
 
         // Create a copy of the candidate cycle's edge vector to perform the reduction process
         uint32_t *vec = malloc(g->nb_edges * sizeof(uint32_t));
@@ -695,7 +711,6 @@ void greedy_cycle_cover(Graph *g) {
         // If the candidat cycle is independent, we add it to the minimal cycle basis
         if (independent) {
             mcb[mcb_count].length = candidate.length;
-            mcb[mcb_count].weight = candidate.weight;
             mcb[mcb_count].edges_ids = malloc(g->nb_edges * sizeof(uint32_t));
 
             if (mcb[mcb_count].edges_ids == NULL) {
@@ -717,7 +732,7 @@ void greedy_cycle_cover(Graph *g) {
     free(basis);
 
     if (mcb_count > 0) {
-        Cycle *exact_mcb = realloc(mcb, mcb_count * sizeof(Cycle));
+        Path *exact_mcb = realloc(mcb, mcb_count * sizeof(Path));
         if (exact_mcb) {
             mcb = exact_mcb;
         } else {
@@ -990,7 +1005,7 @@ void multiple_horton(Graph *g, int *inv, const int max_permutations) {
         exit(1);
     }
 
-    // Convert first inversion table (identity) to permutation
+    generate_random_inversion_table(inv, g->nb_edges);
     inversion_to_permutation(inv, perm, g->nb_edges);
 
     // Apply labels from first permutation
@@ -1000,9 +1015,10 @@ void multiple_horton(Graph *g, int *inv, const int max_permutations) {
     horton(g);
 
     int cnt = 1; // count the number of permutations processed
-    while (next_inversion_table(inv, g->nb_edges) && cnt < max_permutations) {
+    while (cnt < max_permutations) {
 
-        memset(perm, 0, g->nb_edges * sizeof(int)); // Generate the next permutation of edge label
+        memset(perm, 0, g->nb_edges * sizeof(int));
+        generate_random_inversion_table(inv, g->nb_edges);
         inversion_to_permutation(inv, perm, g->nb_edges);
 
         for (int i = 0; i < g->nb_edges; i++) {
