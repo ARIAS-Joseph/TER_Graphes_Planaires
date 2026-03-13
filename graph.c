@@ -450,6 +450,7 @@ void delete_vertex(Graph *g, const int v_id) {
 }
 
 void split_edge(Graph *g, const int edge_id, const int number_vertex_to_add) {
+    delete_edge(g, edge_id);
     const int u = g->edges[edge_id].u;
     const int v = g->edges[edge_id].v;
     const double u_x = g->vertices[u].x;
@@ -461,11 +462,12 @@ void split_edge(Graph *g, const int edge_id, const int number_vertex_to_add) {
         const int m = i;
         const int n = number_vertex_to_add + 1 - i;
         const double new_x = (m * u_x + n * v_x) / (m + n);
-        const double new_y = ((u_y + v_y) / number_vertex_to_add) * i;
+        const double new_y = (m * u_y + n * v_y) / (m + n);
         create_vertex(g, new_x, new_y);
+        if (i == 1) create_edge(g, g->nb_vertex-1, v, 1);
+        else if (i > 1 && i < number_vertex_to_add) create_edge(g, g->nb_vertex-1, g->nb_vertex-2, 1);
+        else create_edge(g, g->nb_vertex-1, u, 1);
     }
-
-    delete_edge(g, edge_id);
 
 }
 

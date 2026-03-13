@@ -443,6 +443,14 @@ function renderGraph() {
             e.stopPropagation();
             selectVertexElement(v.id);
         });
+        g.addEventListener('mousedown', (e)=>{
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+            v.x = mouseX;
+            v.y = mouseY;
+            renderGraph()
+        })
         nodesG.appendChild(g);
     });
 }
