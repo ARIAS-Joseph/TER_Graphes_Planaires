@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include "graph.h"
@@ -9,7 +11,7 @@ void test_multiple_horton(Graph* g, const char* filename) {
     const int n = g->nb_edges;
     int *inv = calloc(n, sizeof(int));
 
-    multiple_horton(g, inv, 1000);
+    multiple_horton(g, inv, 10);
 
     printf("\n=== RÉSULTATS ===\n");
     printf("Nombre de bases minimales distinctes trouvées: %d\n\n", g->nb_minimal_bases);
@@ -32,13 +34,13 @@ void test_multiple_horton(Graph* g, const char* filename) {
 }
 
 void test_planar_graph() {
-    const int nb_vertex = 50;
+    const int nb_vertex = 10;
     Graph* planar = create_planar_graph(nb_vertex, 10000);
     test_multiple_horton(planar, "planar_test.txt");
-    free_graph(planar);
+    delete_graph(planar);
     Graph* outer_planar = create_outer_planar_graph(nb_vertex, 70);
     test_multiple_horton(outer_planar, "outer_planar_test.txt");
-    free_graph(outer_planar);
+    delete_graph(outer_planar);
 
 }
 
@@ -47,7 +49,7 @@ void test_planar_circle() {
     Graph *g = test_circle(nb_vertex);
 
     save_graph(g, "circle_graph.txt");
-    free_graph(g);
+    delete_graph(g);
 }
 
 void test_tree() {
@@ -80,7 +82,7 @@ void test_tree() {
     create_tree(g, perm);
 
     save_graph(g, "tree_graph.txt");
-    free_graph(g);
+    delete_graph(g);
     free(perm);
 }
 
@@ -151,14 +153,41 @@ void test_fisher_yates() {
     free(array);
 }
 
+void test_faces() {
+    Graph *g = create_graph();
+    load_graph(g, "C:\\Users\\arias\\CLionProjects\\TER_Graphes_Planaires\\cmake-build-debug\\graph_patron_cube.txt");
+    find_faces(g);
+    printf("Number of faces: %d\n", g->nb_faces);
+    for (int i = 0; i < g->nb_faces; i++) {
+        printf("Face %d: length = %d, edges = [", i + 1, g->faces[i].length);
+        for (int e = 0; e < g->nb_edges; e++) {
+            if (g->faces[i].edges_ids[e] == 1) {
+                printf("(%d %d)", g->edges[e].u, g->edges[e].v);
+            }
+        }
+        printf("]\n");
+    }
+    printf("Outer edges: [");
+    for (int e = 0; e < g->nb_edges; e++) {
+        if (g->edges[e].deleted) continue;
+        if (g->edges[e].is_outer) {
+            printf("(%d %d)", g->edges[e].u, g->edges[e].v);
+        }
+    }
+    printf("]\n");
+    printf("outer face: %d\n", g->outer_face+1);
+    delete_graph(g);
+}
+
 int main() {
     srand(time(NULL));
-    test_permutations();
+    // test_permutations();
     // test_tree();
     // test_planar_circle();
-    // test_planar_graph();
+    //test_planar_graph();
     //test_all_edges_creation();
     //test_fisher_yates();
+    test_faces();
 
     return 0;
 }

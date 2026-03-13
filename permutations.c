@@ -53,9 +53,10 @@ int next_inversion_table(int *inv, const int n) {
 }
 
 void generate_random_inversion_table(int *inv, const int n) {
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n-1; i++) {
         inv[i] = rand() % (n - 1 - i);
     }
+    inv[n-1] = 0;
 }
 
 /*

@@ -1,5 +1,8 @@
 #include "planar_graph_creator.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "graph.h"
 #include "permutations.h"
 
