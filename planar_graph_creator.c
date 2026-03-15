@@ -85,7 +85,7 @@ int try_add_edge(Graph* g, const int v1, const int v2) {
 
     // Add the edge if it doesn't intersect
     if (!intersects) {
-        create_edge(g, v1, v2, 1);
+        create_edge(g, v1, v2);
         return 1;
     }
     return 0;
@@ -184,7 +184,7 @@ Graph* create_outer_planar_graph(const int nb_vertex, int nb_edges_target) {
 
     // Connect vertices in a cycle
     for (int i = 0; i < nb_vertex; i++) {
-        create_edge(g, i, (i + 1) % nb_vertex, 1);
+        create_edge(g, i, (i + 1) % nb_vertex);
     }
 
     // The maximum number of edges in a planar graph with n vertices is 3n - 6, and we already have
@@ -276,7 +276,7 @@ Graph* test_circle(const int nb_vertex) {
 
     // Connect vertices in a cycle
     for (int i = 0; i < nb_vertex; i++) {
-        create_edge(g, i, (i + 1) % nb_vertex, 1);
+        create_edge(g, i, (i + 1) % nb_vertex);
     }
     return g;
 }

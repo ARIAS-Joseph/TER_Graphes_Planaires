@@ -26,7 +26,7 @@ int* inversion_to_permutation(const int *inv_tab, int* perm_tab, const int n) {
             }
             k++;
         }
-        perm_tab[k] = i+1;
+        perm_tab[k] = i;
     }
     return perm_tab;
 }

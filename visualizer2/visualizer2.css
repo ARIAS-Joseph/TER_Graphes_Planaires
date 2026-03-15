@@ -1,0 +1,208 @@
+/* ── RESET & BASE ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f1117; color: #e2e8f0;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* ── HEADER ────────────────────────────────────────────────────────────── */
+.header {
+    background: #1a1d2e; border-bottom: 1px solid #2d3148;
+    padding: 8px 16px; display: flex; align-items: center; gap: 12px;
+    flex-shrink: 0; flex-wrap: wrap;
+}
+.header-title { font-size: 1rem; font-weight: 700; color: #7c8cf8; white-space: nowrap; }
+.header-meta  { display: none; gap: 16px; align-items: center; flex-wrap: wrap; }
+.meta-item    { font-size: 0.75rem; color: #94a3b8; }
+.meta-item span { color: #e2e8f0; font-weight: 600; }
+.header-sep   { flex: 1; }
+
+/* file input hidden */
+#fileInput { display: none; }
+label[for="fileInput"] {
+    cursor: pointer; padding: 5px 12px; border-radius: 6px;
+    background: #2d3148; color: #94a3b8; font-size: 0.8rem;
+    border: 1px solid #3d4264; white-space: nowrap;
+}
+label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
+
+/* ── BUTTONS ───────────────────────────────────────────────────────────── */
+.btn {
+    padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;
+    border: 1px solid #3d4264; background: #2d3148; color: #94a3b8;
+    white-space: nowrap; transition: all .15s;
+}
+.btn:hover { background: #3d4264; color: #e2e8f0; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.active { background: #4f7cff; border-color: #4f7cff; color: #fff; }
+.btn.danger { background: #2a1a1a; border-color: #7f3030; color: #ff6b6b; }
+.btn.danger:hover { background: #3a2020; }
+.btn.success { background: #1a2a1a; border-color: #306030; color: #51cf66; }
+.btn.success:hover { background: #2a3a2a; }
+.btn-group { display: flex; gap: 4px; align-items: center; }
+
+/* ── MAIN LAYOUT ───────────────────────────────────────────────────────── */
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── LEFT SIDEBAR ──────────────────────────────────────────────────────── */
+.sidebar {
+    width: 240px; flex-shrink: 0; background: #13162a;
+    border-right: 1px solid #2d3148; overflow-y: auto; display: flex; flex-direction: column;
+}
+.sidebar-section { padding: 10px; border-bottom: 1px solid #2d3148; }
+.sidebar-section-title {
+    font-size: 0.7rem; font-weight: 700; color: #64748b;
+    text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px;
+}
+#basesList { padding: 8px; flex: 1; }
+
+/* ── BASES / CYCLES ────────────────────────────────────────────────────── */
+.basis-block  { margin-bottom: 6px; }
+.basis-title  {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px; border-radius: 6px; cursor: pointer;
+    background: #1e2235; border: 1px solid #2d3148; font-size: 0.82rem;
+}
+.basis-title:hover  { background: #252840; }
+.basis-title.active { background: #2d3580; border-color: #4f7cff; }
+.basis-badge  {
+    font-size: 0.7rem; background: #2d3148; padding: 2px 7px;
+    border-radius: 10px; color: #64748b;
+}
+.cycles-list  { display: none; margin-top: 3px; margin-left: 10px; }
+.cycles-list.open { display: block; }
+.cycle-item   {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 8px; border-radius: 5px; cursor: pointer;
+    border: 1px solid transparent; margin-bottom: 3px; font-size: 0.78rem;
+}
+.cycle-item:hover { background: #1e2235; }
+.cycle-item.active { background: #1e2a3a; border-color: #4f7cff; }
+.cycle-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; }
+.cycle-name   { font-weight: 600; color: #cbd5e1; }
+.cycle-detail { color: #64748b; font-size: 0.72rem; line-height: 1.5; word-break: break-all; }
+
+/* ── RIGHT PANEL (edit tools) ──────────────────────────────────────────── */
+.right-panel {
+    width: 200px; flex-shrink: 0; background: #13162a;
+    border-left: 1px solid #2d3148; display: flex; flex-direction: column;
+    padding: 10px; gap: 12px; overflow-y: auto;
+}
+.panel-section-title {
+    font-size: 0.7rem; font-weight: 700; color: #64748b;
+    text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px;
+}
+.panel-section { display: flex; flex-direction: column; gap: 5px; }
+
+.input-row { display: flex; gap: 5px; align-items: center; }
+.input-row input {
+    flex: 1; background: #1e2235; border: 1px solid #2d3148; color: #e2e8f0;
+    border-radius: 5px; padding: 4px 7px; font-size: 0.78rem;
+}
+.input-row input:focus { outline: none; border-color: #4f7cff; }
+.input-label { font-size: 0.75rem; color: #64748b; white-space: nowrap; }
+
+/* status zone dans le panneau droit */
+.status-msg {
+    font-size: 0.75rem; color: #ffd43b; background: #2a2410;
+    border: 1px solid #4a3a10; border-radius: 5px; padding: 5px 8px;
+    min-height: 28px; word-break: break-word;
+}
+.status-msg.ok   { color: #51cf66; background: #102010; border-color: #204020; }
+.status-msg.err  { color: #ff6b6b; background: #2a1010; border-color: #4a2020; }
+
+/* loading spinner */
+.spinner {
+    display: none; width: 14px; height: 14px;
+    border: 2px solid #2d3148; border-top-color: #4f7cff;
+    border-radius: 50%; animation: spin .6s linear infinite; flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── CANVAS AREA ───────────────────────────────────────────────────────── */
+.canvas-area {
+    flex: 1; position: relative; background: #0f1117; overflow: hidden;
+}
+#graphSvg {
+    width: 100%; height: 100%; display: none; cursor: default;
+}
+#graphSvg.mode-add-vertex { cursor: crosshair; }
+#graphSvg.mode-add-edge   { cursor: cell; }
+
+/* ── EMPTY STATE ───────────────────────────────────────────────────────── */
+.empty-state {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; color: #3d4264;
+}
+.empty-state svg { opacity: .25; }
+.empty-state p   { font-size: 0.9rem; }
+
+/* ── CONTROLS BAR ──────────────────────────────────────────────────────── */
+#controls {
+    display: none; position: absolute; bottom: 28px; left: 50%;
+    transform: translateX(-50%);
+    background: #1a1d2e; border: 1px solid #2d3148; border-radius: 8px;
+    padding: 5px 8px; gap: 4px; align-items: center;
+}
+
+/* ── SVG ELEMENTS ──────────────────────────────────────────────────────── */
+.edge            { stroke: #3d4264; stroke-width: 2; }
+.edge.highlighted{ stroke-width: 3; }
+.edge.crossing   { stroke: #ff4444; stroke-dasharray: 6 3; }
+.edge.selected   { stroke: #ffd43b; stroke-width: 3; }
+.node-circle {
+    fill: #1e2235; stroke: #4f7cff; stroke-width: 2;
+    transition: r .1s;
+}
+.node-circle.highlighted { fill: #2d3580; stroke-width: 3; }
+.node-circle.selected    { fill: #3a2a00; stroke: #ffd43b; stroke-width: 3; }
+.node-label {
+    fill: #e2e8f0; font-size: 11px; text-anchor: middle; dominant-baseline: central;
+    pointer-events: none; user-select: none;
+}
+.node-label.highlighted { fill: #fff; font-weight: 700; }
+.intersection-marker { stroke: #ff0000; stroke-width: 2.5; stroke-linecap: round; }
+
+/* ── TOOLTIP ───────────────────────────────────────────────────────────── */
+#tooltip {
+    display: none; position: absolute; background: #1a1d2e;
+    border: 1px solid #3d4264; color: #e2e8f0; padding: 5px 10px;
+    border-radius: 6px; font-size: 0.78rem; pointer-events: none; z-index: 100;
+    white-space: nowrap;
+}
+
+/* ── MODAL ─────────────────────────────────────────────────────────────── */
+.modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.6); z-index: 200;
+    align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+    background: #1a1d2e; border: 1px solid #3d4264; border-radius: 10px;
+    padding: 20px; min-width: 340px; max-width: 480px;
+    display: flex; flex-direction: column; gap: 14px;
+}
+.modal h2 { font-size: 1rem; color: #7c8cf8; }
+.modal label { font-size: 0.82rem; color: #94a3b8; display: block; margin-bottom: 4px; }
+.modal input, .modal select {
+    width: 100%; background: #0f1117; border: 1px solid #3d4264;
+    color: #e2e8f0; border-radius: 6px; padding: 6px 10px; font-size: 0.85rem;
+}
+.modal input:focus, .modal select:focus { outline: none; border-color: #4f7cff; }
+.modal-hint { font-size: 0.75rem; color: #64748b; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal #splitEdgeList {
+    max-height: 140px; overflow-y: auto;
+    background: #0f1117; border: 1px solid #2d3148;
+    border-radius: 6px; padding: 6px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.modal .edge-checkbox {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.8rem; color: #94a3b8; cursor: pointer; padding: 3px;
+    border-radius: 4px;
+}
+.modal .edge-checkbox:hover { background: #1e2235; }
+.modal .edge-checkbox input { width: auto; }

@@ -184,10 +184,10 @@ int main() {
     // test_permutations();
     // test_tree();
     // test_planar_circle();
-    //test_planar_graph();
+    // test_planar_graph();
     //test_all_edges_creation();
     //test_fisher_yates();
-    test_faces();
+    //test_faces();
 
     return 0;
 }

@@ -1,0 +1,24 @@
+#!/bin/bash
+echo "Démarrage du serveur..."
+@echo off
+cd /d %~dp0
+
+python --version >nul 2>&1
+if %errorlevel% == 0 (
+    python server.py
+    pause
+    exit /b
+)
+
+python3 --version >nul 2>&1
+if %errorlevel% == 0 (
+    python3 server.py
+    pause
+    exit /b
+)
+
+if exist ".venv\Scripts\python.exe" (
+    .venv\Scripts\python.exe server.py
+    pause
+    exit /b
+)

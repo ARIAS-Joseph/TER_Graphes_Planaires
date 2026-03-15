@@ -28,7 +28,6 @@ typedef struct {
 typedef struct {
     int u; /**< ID of the first vertex */
     int v; /**< ID of the second vertex */
-    int weight; /**< Weight of the edge */
     int label; /**< Label of the edge (0 to nb_edges-1), used for generating different minimal cycle
     bases by permuting these labels. */
     int id; /**< Unique identifier (0 to nb_edges-1), represents the index of the edge in
@@ -133,7 +132,7 @@ Graph *create_graph();
 
 void create_vertex(Graph *g, double x, double y);
 
-void create_edge(Graph *g, int v1_id, int v2_id, int weight);
+void create_edge(Graph *g, int v1_id, int v2_id);
 
 void save_graph(const Graph *g, const char *filename);
 
@@ -146,5 +145,13 @@ void load_graph(Graph *g, const char *filename);
 void horton(Graph *g);
 
 void find_faces(Graph *g);
+
+void split_edges(Graph *g, const int *edge_ids, int number_edge_to_split, int number_vertex_to_add);
+
+void split_edge(Graph *g, int edge_id, int number_vertex_to_add);
+
+void delete_vertex(Graph *g, int v_id);
+
+void delete_edge(Graph *g, int e_id);
 
 #endif //TER_GRAPHES_PLANAIRES_GRAPH_H
