@@ -112,7 +112,14 @@ void spread_label(Graph* g, const int edge_id) {
     }
 }
 
-int create_tree(Graph* g, const int* perm) {
+/** @brief Create a tree in the graph using a random permutation of edges.
+ *
+ * @param g Pointer to the graph structure where the tree will be created.
+ * @param perm Pointer to an array containing a random permutation of all possible edges between
+ * the vertices of the graph.
+ *
+ */
+void create_tree(Graph* g, const int* perm) {
     for (int i = 0; i < g->nb_vertex; i++) {
         g->vertices[i].label = i;
     }
@@ -149,8 +156,6 @@ int create_tree(Graph* g, const int* perm) {
         fprintf(stderr, "Error: Failed to create a tree in create_tree: unique label not "
                         "achieved.\n");
     }
-
-    return perm_index;
 
 }
 
@@ -216,6 +221,13 @@ Graph* create_outer_planar_graph(const int nb_vertex, int nb_edges_target) {
     return g;
 }
 
+/** @brief Create a random planar graph
+ *
+ * @param nb_vertex The number of vertices in the planar graph.
+ * @param nb_edges_target The target number of edges in the planar graph
+ * (excluding the edges of the initial tree).
+ * @return A pointer to the created planar graph structure.
+ */
 Graph* create_planar_graph(const int nb_vertex, int nb_edges_target) {
 
     Graph *g = create_graph();
@@ -225,6 +237,8 @@ Graph* create_planar_graph(const int nb_vertex, int nb_edges_target) {
     for (int i = 0; i < nb_vertex; i++) {
         const double x = rand() % (nb_vertex*100);
         const double y = rand() % (nb_vertex*100);
+
+        // Check if there is no vertex in (x,y)
         int already_exists = 0;
         for (int j = 0; j < i; j++) {
             if (created[j][0] == x && created[j][1] == y) {
@@ -232,11 +246,13 @@ Graph* create_planar_graph(const int nb_vertex, int nb_edges_target) {
                 break;
             }
         }
+
+        // If there are no vertex in (x,y), we can create the vertex at this coordinates
         if (!already_exists) {
             created[i][0] = x;
             created[i][1] = y;
             create_vertex(g, x, y);
-        } else {
+        } else { // Else, we decrement i since we did not add a vertex
             i--;
         }
     }
@@ -245,38 +261,41 @@ Graph* create_planar_graph(const int nb_vertex, int nb_edges_target) {
     create_all_edges(g->nb_vertex, perm);
     fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
 
-    int perm_index = create_tree(g, perm);
+    /*
+     * FIX: construire d'abord un arbre couvrant aléatoire (n-1 arêtes) pour
+     * garantir que le graphe est connexe.  Sans cette étape, des sommets
+     * isolés peuvent apparaître, ce qui fait planter le BFS de Horton et
+     * produit des graphes non-connexes visuellement incohérents.
+     */
+    create_tree(g, perm);
 
-    // The maximum number of edges in a planar graph with n vertices is 3n - 6, and we already have
-    // n-1 edges in the cycle, so we can only add at most 2n - 5 more edges
-    nb_edges_target = nb_edges_target < 2 * nb_vertex - 5 ? nb_edges_target : 2 * nb_vertex - 5;
+    /* Regénérer une permutation fraîche pour les arêtes supplémentaires */
+    create_all_edges(g->nb_vertex, perm);
+    fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
+    int perm_index = 0;
 
-    while (g->nb_edges < nb_edges_target && perm_index < g->nb_vertex * (g->nb_vertex - 1)) {
+    /*
+     * L'arbre couvrant a déjà n-1 arêtes.
+     * Max pour un graphe planaire : 3n-6.
+     * nb_edges_target est le nombre TOTAL d'arêtes voulu (pas les extra).
+     * On borne à 3n-6 (max planaire) et à la cible.
+     */
+    const int max_total = 3 * nb_vertex - 6;
+    const int edge_cap  = (nb_edges_target < max_total ? nb_edges_target : max_total);
+
+    while (g->nb_edges < edge_cap && perm_index < g->nb_vertex * (g->nb_vertex - 1)) {
         const int v1 = perm[perm_index++];
         const int v2 = perm[perm_index++];
-
         try_add_edge(g, v1, v2);
     }
 
+    for (int i = 0; i < g->nb_vertex; i++) {
+        if (g->neighbors[i].count == 1) {
+            delete_vertex(g, i);
+            i = 0;
+        }
+    }
+
     free(perm);
-    return g;
-}
-
-Graph* test_circle(const int nb_vertex) {
-
-    Graph *g = create_graph();
-
-    // Create vertices in a circular layout
-    for (int i = 0; i < nb_vertex; i++) {
-        const double angle = 2.0 * M_PI * i / nb_vertex;
-        const double x = cos(angle);
-        const double y = sin(angle);
-        create_vertex(g, x, y);
-    }
-
-    // Connect vertices in a cycle
-    for (int i = 0; i < nb_vertex; i++) {
-        create_edge(g, i, (i + 1) % nb_vertex);
-    }
     return g;
 }

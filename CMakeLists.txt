@@ -3,25 +3,36 @@ project(TER_Graphes_Planaires C)
 
 set(CMAKE_C_STANDARD 17)
 
-# Ton exécutable principal (inchangé)
 add_executable(TER_Graphes_Planaires
         permutations.c
         permutations.h
         planar_graph_creator.c
         planar_graph_creator.h
         graph.h
-        main.c)
+        graph.c
+        study.c)
 
 target_link_libraries(TER_Graphes_Planaires m)
 
-# Nouvel exécutable CLI pour le visualiseur HTML
+add_executable(Test_Graphes_Planaires
+        permutations.c
+        permutations.h
+        planar_graph_creator.c
+        planar_graph_creator.h
+        graph.h
+        test.c
+        graph.c)
+
+target_link_libraries(Test_Graphes_Planaires m)
+
 add_executable(graph_tool
-        main_cli.c
         planar_graph_creator.c
         planar_graph_creator.h
         permutations.c
         permutations.h
-        graph.h)
+        graph.h
+        graph.c
+        study.c)
 
 target_link_libraries(graph_tool m)
 

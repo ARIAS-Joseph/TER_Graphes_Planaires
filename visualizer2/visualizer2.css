@@ -1,4 +1,3 @@
-/* ── RESET & BASE ──────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
     font-family: 'Segoe UI', system-ui, sans-serif;
@@ -6,7 +5,6 @@ body {
     height: 100vh; display: flex; flex-direction: column; overflow: hidden;
 }
 
-/* ── HEADER ────────────────────────────────────────────────────────────── */
 .header {
     background: #1a1d2e; border-bottom: 1px solid #2d3148;
     padding: 8px 16px; display: flex; align-items: center; gap: 12px;
@@ -18,7 +16,6 @@ body {
 .meta-item span { color: #e2e8f0; font-weight: 600; }
 .header-sep   { flex: 1; }
 
-/* file input hidden */
 #fileInput { display: none; }
 label[for="fileInput"] {
     cursor: pointer; padding: 5px 12px; border-radius: 6px;
@@ -27,7 +24,6 @@ label[for="fileInput"] {
 }
 label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 
-/* ── BUTTONS ───────────────────────────────────────────────────────────── */
 .btn {
     padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;
     border: 1px solid #3d4264; background: #2d3148; color: #94a3b8;
@@ -42,10 +38,8 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 .btn.success:hover { background: #2a3a2a; }
 .btn-group { display: flex; gap: 4px; align-items: center; }
 
-/* ── MAIN LAYOUT ───────────────────────────────────────────────────────── */
 .main { display: flex; flex: 1; overflow: hidden; }
 
-/* ── LEFT SIDEBAR ──────────────────────────────────────────────────────── */
 .sidebar {
     width: 240px; flex-shrink: 0; background: #13162a;
     border-right: 1px solid #2d3148; overflow-y: auto; display: flex; flex-direction: column;
@@ -57,7 +51,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 }
 #basesList { padding: 8px; flex: 1; }
 
-/* ── BASES / CYCLES ────────────────────────────────────────────────────── */
 .basis-block  { margin-bottom: 6px; }
 .basis-title  {
     display: flex; align-items: center; justify-content: space-between;
@@ -83,7 +76,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 .cycle-name   { font-weight: 600; color: #cbd5e1; }
 .cycle-detail { color: #64748b; font-size: 0.72rem; line-height: 1.5; word-break: break-all; }
 
-/* ── RIGHT PANEL (edit tools) ──────────────────────────────────────────── */
 .right-panel {
     width: 200px; flex-shrink: 0; background: #13162a;
     border-left: 1px solid #2d3148; display: flex; flex-direction: column;
@@ -103,7 +95,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 .input-row input:focus { outline: none; border-color: #4f7cff; }
 .input-label { font-size: 0.75rem; color: #64748b; white-space: nowrap; }
 
-/* status zone dans le panneau droit */
 .status-msg {
     font-size: 0.75rem; color: #ffd43b; background: #2a2410;
     border: 1px solid #4a3a10; border-radius: 5px; padding: 5px 8px;
@@ -112,7 +103,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 .status-msg.ok   { color: #51cf66; background: #102010; border-color: #204020; }
 .status-msg.err  { color: #ff6b6b; background: #2a1010; border-color: #4a2020; }
 
-/* loading spinner */
 .spinner {
     display: none; width: 14px; height: 14px;
     border: 2px solid #2d3148; border-top-color: #4f7cff;
@@ -120,7 +110,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── CANVAS AREA ───────────────────────────────────────────────────────── */
 .canvas-area {
     flex: 1; position: relative; background: #0f1117; overflow: hidden;
 }
@@ -130,7 +119,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 #graphSvg.mode-add-vertex { cursor: crosshair; }
 #graphSvg.mode-add-edge   { cursor: cell; }
 
-/* ── EMPTY STATE ───────────────────────────────────────────────────────── */
 .empty-state {
     position: absolute; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 10px; color: #3d4264;
@@ -138,7 +126,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 .empty-state svg { opacity: .25; }
 .empty-state p   { font-size: 0.9rem; }
 
-/* ── CONTROLS BAR ──────────────────────────────────────────────────────── */
 #controls {
     display: none; position: absolute; bottom: 28px; left: 50%;
     transform: translateX(-50%);
@@ -146,7 +133,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
     padding: 5px 8px; gap: 4px; align-items: center;
 }
 
-/* ── SVG ELEMENTS ──────────────────────────────────────────────────────── */
 .edge            { stroke: #3d4264; stroke-width: 2; }
 .edge.highlighted{ stroke-width: 3; }
 .edge.crossing   { stroke: #ff4444; stroke-dasharray: 6 3; }
@@ -164,7 +150,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 .node-label.highlighted { fill: #fff; font-weight: 700; }
 .intersection-marker { stroke: #ff0000; stroke-width: 2.5; stroke-linecap: round; }
 
-/* ── TOOLTIP ───────────────────────────────────────────────────────────── */
 #tooltip {
     display: none; position: absolute; background: #1a1d2e;
     border: 1px solid #3d4264; color: #e2e8f0; padding: 5px 10px;
@@ -172,7 +157,6 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
     white-space: nowrap;
 }
 
-/* ── MODAL ─────────────────────────────────────────────────────────────── */
 .modal-overlay {
     display: none; position: fixed; inset: 0;
     background: rgba(0,0,0,.6); z-index: 200;
@@ -206,3 +190,16 @@ label[for="fileInput"]:hover { background: #3d4264; color: #e2e8f0; }
 }
 .modal .edge-checkbox:hover { background: #1e2235; }
 .modal .edge-checkbox input { width: auto; }
+
+.face-badge {
+    font-size: 0.7rem; background: #1a3a1a; color: #51cf66;
+    border: 1px solid #306030; padding: 2px 7px; border-radius: 10px;
+    font-weight: 700; letter-spacing: .05em;
+}
+/* Présence dans d'autres bases */
+.cycle-presence {
+    font-size: 0.68rem; color: #4f7cff; margin-top: 2px;
+}
+.cycle-presence.unique {
+    color: #64748b; font-style: italic;
+}

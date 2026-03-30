@@ -5,7 +5,6 @@ const PALETTE = [
     '#74c0fc', '#a9e34b', '#ff8787', '#63e6be'
 ];
 
-// ── STATE ────────────────────────────────────────────────────────────────────
 let graphData= null;
 let activeBasis= null;
 let activeCycle= null;
@@ -15,15 +14,13 @@ let scale= 1, panX = 0, panY = 0;
 let isPanning= false, panStart = null;
 let draggingVertex= null, dragMoved = false;
 
-// Modes d'edition
 const MODE = { NORMAL: 'normal', ADD_VERTEX: 'add_vertex', ADD_EDGE: 'add_edge' };
-let editMode     = MODE.NORMAL;
+let editMode = MODE.NORMAL;
 let addEdgeFirst = null;
 
-let nbIterations = 10; // variable globale Horton
+let nbIterations = parseInt(document.getElementById('hortonN').value) || 1000;
 
-// ── SERVER ───────────────────────────────────────────────────────────────────
-const SERVER = 'http://localhost:8080';
+await GraphWasm.init();
 
 function setStatus(msg, type) {
     const el = document.getElementById('statusMsg');
@@ -37,24 +34,12 @@ function setLoading(on) {
 
 async function callC(action, args) {
     if (!args) args = [];
-    if (action !== 'generate_graph' && !graphData) return;
+    if (action !== 'generate_graph' && action !== 'run_horton' && action !== 'move_vertex' && !graphData) return;
     setLoading(true);
     setStatus('Execution : ' + action + '...');
     try {
-        const body = {
-            action: action,
-            args: args,
-            graph: (action !== 'generate_graph') ? buildGraphText() : null
-        };
-        const res = await fetch(SERVER, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        graphData = parseGraphFile(data.graph);
+        await GraphWasm.call({ action, args });
+        graphData = GraphWasm.readGraph();
         renderAll();
         setStatus('OK', 'ok');
     } catch (err) {
@@ -75,29 +60,34 @@ function autoRunHorton() {
     }
 }
 
-// ── FILE LOADING ─────────────────────────────────────────────────────────────
 document.getElementById('fileInput').addEventListener('change', function(e) {
     const f = e.target.files[0];
     if (!f) return;
     const reader = new FileReader();
     reader.onload = function(ev) {
         try {
-            graphData = parseGraphFile(ev.target.result);
+            const text = ev.target.result;
+            setStatus('Chargement...', '');
+            setLoading(true);
+            GraphWasm.loadFromText(text);
+            graphData = GraphWasm.readGraph();
             renderAll();
-            setStatus('Fichier charge', 'ok');
+            setStatus('Fichier chargé', 'ok');
         } catch (err) {
-            setStatus('Erreur parsing : ' + err.message, 'err');
+            setStatus('Erreur chargement : ' + err.message, 'err');
+        } finally {
+            setLoading(false);
         }
     };
     reader.readAsText(f);
 });
 
-// ── PARSER ───────────────────────────────────────────────────────────────────
 function parseGraphFile(text) {
     const lines = text.trim().split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
     let idx = 0;
     const header = lines[idx++].split(/\s+/).map(Number);
     const V = header[0], E = header[1], M = header[2], D = header[3];
+    const faceBasis = header[4] !== undefined ? header[4] : -1;
 
     const vertices = [];
     for (let i = 0; i < V; i++) {
@@ -124,21 +114,18 @@ function parseGraphFile(text) {
     const vertexMap = {};
     vertices.forEach(v => { vertexMap[v.id] = v; });
 
-    return { V, E, M, D, vertices, edges, bases, vertexMap };
+    return { V, E, M, D, vertices, edges, bases, vertexMap, faceBasis };
 }
 
-// ── SERIALIZE ────────────────────────────────────────────────────────────────
 function buildGraphText() {
     const d = graphData;
     const lines = [];
-    lines.push(d.vertices.length + ' ' + d.edges.length + ' ' + d.M + ' ' + d.D);
+    lines.push(d.vertices.length + ' ' + d.edges.length + ' 0 0 -1');
     d.vertices.forEach(function(v) { lines.push(v.id + ' ' + v.x.toFixed(6) + ' ' + v.y.toFixed(6)); });
-    d.edges.forEach(function(e) { lines.push(e.id + ' ' + e.u + ' ' + e.v); }); // 3 champs: id u v
-    d.bases.forEach(function(cycles) { cycles.forEach(function(ei) { lines.push(ei.join(' ')); }); });
+    d.edges.forEach(function(e) { lines.push(e.id + ' ' + e.u + ' ' + e.v); });
     return lines.join('\n') + '\n';
 }
 
-// ── SAVE ─────────────────────────────────────────────────────────────────────
 async function saveGraph() {
     if (!graphData) return;
     const text = buildGraphText();
@@ -165,7 +152,7 @@ async function saveGraph() {
 }
 document.getElementById('saveBtn').addEventListener('click', saveGraph);
 
-// ── EDIT MODES ────────────────────────────────────────────────────────────────
+
 document.getElementById('addVertexBtn').addEventListener('click', function() {
     if (!graphData) return;
     setEditMode(editMode === MODE.ADD_VERTEX ? MODE.NORMAL : MODE.ADD_VERTEX);
@@ -180,7 +167,7 @@ function setEditMode(mode) {
     editMode = mode;
     addEdgeFirst = null;
     const svgEl = document.getElementById('graphSvg');
-    svgEl.className = '';
+    svgEl.setAttribute('class', '');
     if (mode === MODE.ADD_VERTEX) svgEl.classList.add('mode-add-vertex');
     if (mode === MODE.ADD_EDGE)   svgEl.classList.add('mode-add-edge');
 
@@ -195,7 +182,7 @@ function setEditMode(mode) {
     renderGraph();
 }
 
-// ── DELETE ────────────────────────────────────────────────────────────────────
+
 document.getElementById('deleteVertexBtn').addEventListener('click', function() {
     if (selectedVertex === null) return;
     const vid = selectedVertex;
@@ -212,7 +199,7 @@ document.getElementById('deleteEdgeBtn').addEventListener('click', function() {
     callC('delete_edge', [eid, nbIterations]);
 });
 
-// ── SPLIT MODAL ───────────────────────────────────────────────────────────────
+
 document.getElementById('splitEdgeBtn').addEventListener('click', function() {
     if (!graphData) return;
     const list = document.getElementById('splitEdgeList');
@@ -244,14 +231,14 @@ document.getElementById('splitConfirm').addEventListener('click', function() {
     callC('split_edges', [k, nbIterations].concat(edgeIds));
 });
 
-// ── HORTON BUTTON ─────────────────────────────────────────────────────────────
+
 document.getElementById('runHortonBtn').addEventListener('click', runHorton);
 
 document.getElementById('hortonN').addEventListener('input', function() {
-    nbIterations = parseInt(this.value) || 10;
+    nbIterations = parseInt(this.value);
 });
 document.getElementById('hortonN').addEventListener('change', function() {
-    nbIterations = parseInt(this.value) || 10;
+    nbIterations = parseInt(this.value);
 });
 
 document.getElementById('generateBtn').addEventListener('click', function() {
@@ -262,21 +249,20 @@ document.getElementById('generateCancel').addEventListener('click', function() {
 });
 document.getElementById('generateConfirm').addEventListener('click', function() {
     var type = document.getElementById('genType').value;
-    var nbV  = parseInt(document.getElementById('genVertices').value) || 10;
-    var nbE  = parseInt(document.getElementById('genEdges').value) || 20;
+    var nbV  = parseInt(document.getElementById('genVertices').value);
+    var nbE  = parseInt(document.getElementById('genEdges').value);
     document.getElementById('generateModal').classList.remove('open');
     callC('generate_graph', [type, nbV, nbE, nbIterations]);
 });
 
-// ── HELPERS ───────────────────────────────────────────────────────────────────
 function updateActionButtons() {
     document.getElementById('deleteVertexBtn').disabled = selectedVertex === null;
-    document.getElementById('deleteEdgeBtn').disabled   = selectedEdge === null;
-    document.getElementById('splitEdgeBtn').disabled    = !graphData;
-    document.getElementById('runHortonBtn').disabled    = !graphData;
+    document.getElementById('deleteEdgeBtn').disabled = selectedEdge === null;
+    document.getElementById('splitEdgeBtn').disabled = !graphData;
+    document.getElementById('runHortonBtn').disabled = !graphData;
 }
 
-// ── RECONSTRUCT CYCLE PATH ────────────────────────────────────────────────────
+
 function reconstructCyclePath(edgeIndices, edges) {
     if (edgeIndices.length === 0) return [];
     const cycleEdges = edgeIndices.map(function(eId) { return edges.find(function(e) { return e.id === eId; }); });
@@ -296,7 +282,7 @@ function reconstructCyclePath(edgeIndices, edges) {
     return path;
 }
 
-// ── RENDER ALL ────────────────────────────────────────────────────────────────
+
 function renderAll() {
     const d = graphData;
     activeBasis = null; activeCycle = null;
@@ -317,18 +303,30 @@ function renderAll() {
     renderGraph();
 }
 
-// ── SIDEBAR ───────────────────────────────────────────────────────────────────
+
 function buildSidebar() {
     const d = graphData;
     const container = document.getElementById('basesList');
     container.innerHTML = '';
+    var cycleKey = function(edgeIndices) { return edgeIndices.slice().sort(function(a,b){return a-b;}).join(','); };
+    var cyclePresence = {};
+    d.bases.forEach(function(cycles, bIdx) {
+        cycles.forEach(function(edgeIndices) {
+            var k = cycleKey(edgeIndices);
+            if (!cyclePresence[k]) cyclePresence[k] = [];
+            cyclePresence[k].push(bIdx);
+        });
+    });
+
     d.bases.forEach(function(cycles, bIdx) {
         const block = document.createElement('div');
         block.className = 'basis-block';
 
         const title = document.createElement('div');
         title.className = 'basis-title';
-        title.innerHTML = '<span>Basis ' + (bIdx+1) + '</span><span class="basis-badge">' + d.D + ' cycles</span>';
+        var isFace = (d.faceBasis !== undefined && d.faceBasis !== -1 && d.faceBasis === bIdx + 1);
+        var faceBadge = isFace ? '<span class="face-badge">Face</span>' : '';
+        title.innerHTML = '<span>Basis ' + (bIdx+1) + '</span>' + faceBadge + '<span class="basis-badge">' + d.D + ' cycles</span>';
         const cyclesList = document.createElement('div');
         cyclesList.className = 'cycles-list';
         title.addEventListener('click', function() { toggleBasis(bIdx, title, cyclesList); });
@@ -343,11 +341,21 @@ function buildSidebar() {
                 const e = d.edges.find(function(edge) { return edge.id === eId; });
                 return '(' + e.u + ',' + e.v + ')';
             }).join(', ');
+            var k = cycleKey(edgeIndices);
+            var presence = cyclePresence[k] || [];
+            var presenceText = '';
+            if (presence.length > 1) {
+                var others = presence.filter(function(i) { return i !== bIdx; }).map(function(i) { return 'B' + (i+1); });
+                presenceText = '<div class="cycle-presence">Présent dans ' + others.length +' autres bases: ' + others.join(', ') + '</div>';
+            } else {
+                presenceText = '<div class="cycle-presence unique">Unique à cette base</div>';
+            }
             item.innerHTML = '<div class="cycle-swatch" style="background:' + color + '"></div>' +
                 '<div class="cycle-info">' +
                 '<div class="cycle-name">Cycle ' + (cIdx+1) + '</div>' +
                 '<div class="cycle-detail">' + edgeIndices.length + ' edges: ' + edgesList + '</div>' +
                 '<div class="cycle-detail">Path: ' + path.join(' -> ') + '</div>' +
+                presenceText +
                 '</div>';
             item.addEventListener('click', function(e) { e.stopPropagation(); selectCycle(bIdx, cIdx, item); });
             cyclesList.appendChild(item);
@@ -391,7 +399,7 @@ function selectCycle(bIdx, cIdx, itemEl) {
     renderGraph();
 }
 
-// ── ELEMENT SELECTION ─────────────────────────────────────────────────────────
+
 function selectVertexElement(vid) {
     if (editMode === MODE.ADD_EDGE) {
         if (addEdgeFirst === null) {
@@ -403,7 +411,7 @@ function selectVertexElement(vid) {
             const u = addEdgeFirst;
             addEdgeFirst = null;
             setEditMode(MODE.NORMAL);
-            callC('add_edge', [u, vid, nbIterations]);
+            setTimeout(function() { callC('add_edge', [u, vid, nbIterations]); }, 0);
         }
         return;
     }
@@ -426,7 +434,6 @@ function selectEdgeElement(eid) {
     renderGraph();
 }
 
-// ── FIT / PROJECT / UNPROJECT ────────────────────────────────────────────────
 function fitGraph() {
     const d = graphData;
     const area = document.getElementById('canvasArea');
@@ -444,7 +451,7 @@ function fitGraph() {
 function project(x, y)   { return { px: x * scale + panX, py: y * scale + panY }; }
 function unproject(px, py){ return { x: (px - panX) / scale, y: (py - panY) / scale }; }
 
-// ── INTERSECTIONS ─────────────────────────────────────────────────────────────
+
 function segmentsIntersect(p1, p2, p3, p4) {
     const d1x = p2.x-p1.x, d1y = p2.y-p1.y, d2x = p4.x-p3.x, d2y = p4.y-p3.y;
     const cross = d1x*d2y - d1y*d2x;
@@ -476,7 +483,7 @@ function computeIntersections() {
     return { crossingEdges: crossingEdges, points: points };
 }
 
-// ── RENDER GRAPH ──────────────────────────────────────────────────────────────
+
 const svg = document.getElementById('graphSvg');
 
 function renderGraph() {
@@ -513,7 +520,6 @@ function renderGraph() {
         infoText.style.fill = '#ff6b6b';
     }
 
-    // Highlight logic
     const highlightedEdges = new Set(), highlightedNodes = new Set(), cycleColors = {};
     if (activeBasis !== null && activeCycle !== null) {
         const eids = d.bases[activeBasis][activeCycle];
@@ -562,7 +568,6 @@ function renderGraph() {
     const intersG = document.getElementById('intersectionsGroup');
     const nodesG  = document.getElementById('nodesGroup');
 
-    // Draw edges
     d.edges.forEach(function(edge) {
         const v1 = d.vertexMap[edge.u];
         const v2 = d.vertexMap[edge.v];
@@ -592,7 +597,6 @@ function renderGraph() {
         edgesG.appendChild(hit);
     });
 
-    // Intersection markers
     intersectionPoints.forEach(function(pt) {
         const p = project(pt.x, pt.y); const R = 5;
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -608,12 +612,11 @@ function renderGraph() {
         intersG.appendChild(g);
     });
 
-    // Draw nodes
     const NODE_R = Math.max(10, Math.min(18, scale * 0.35));
     d.vertices.forEach(function(v) {
         const p = project(v.x, v.y);
-        const isHL   = highlightedNodes.has(v.id);
-        const isSel  = v.id === selectedVertex;
+        const isHL = highlightedNodes.has(v.id);
+        const isSel = v.id === selectedVertex;
         const isFirst = v.id === addEdgeFirst;
 
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -621,8 +624,8 @@ function renderGraph() {
         circle.setAttribute('cx', p.px); circle.setAttribute('cy', p.py);
         circle.setAttribute('r', isFirst ? NODE_R * 1.3 : NODE_R);
         circle.classList.add('node-circle');
-        if (isSel)       circle.classList.add('selected');
-        else if (isHL)   circle.classList.add('highlighted');
+        if (isSel) circle.classList.add('selected');
+        else if (isHL) circle.classList.add('highlighted');
         if (isFirst) circle.style.stroke = '#ffd43b';
 
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -652,7 +655,6 @@ function renderGraph() {
     });
 }
 
-// ── TOOLTIP ───────────────────────────────────────────────────────────────────
 const tooltip = document.getElementById('tooltip');
 function showTooltip(e, text) { tooltip.textContent = text; tooltip.style.display = 'block'; moveTooltip(e); }
 function moveTooltip(e) {
@@ -662,16 +664,15 @@ function moveTooltip(e) {
 }
 function hideTooltip() { tooltip.style.display = 'none'; }
 
-// ── CANVAS CLICK : add vertex ─────────────────────────────────────────────────
 document.getElementById('canvasArea').addEventListener('click', function(e) {
     if (editMode !== MODE.ADD_VERTEX) return;
     const rect = document.getElementById('canvasArea').getBoundingClientRect();
     const pos = unproject(e.clientX - rect.left, e.clientY - rect.top);
     setEditMode(MODE.NORMAL);
-    callC('add_vertex', [pos.x.toFixed(3), pos.y.toFixed(3), nbIterations]);
+    // setTimeout 0 : même raison que pour add_edge — différer après le cycle d'événements.
+    setTimeout(function() { callC('add_vertex', [pos.x.toFixed(3), pos.y.toFixed(3), nbIterations]); }, 0);
 });
 
-// ── ZOOM & PAN ────────────────────────────────────────────────────────────────
 svg.addEventListener('click', function(e) {
     if (editMode !== MODE.NORMAL) return;
     if (e.target === svg) {
@@ -684,7 +685,7 @@ svg.addEventListener('wheel', function(e) {
     if (!graphData) return;
     e.preventDefault();
     const rect = document.getElementById('canvasArea').getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const mx= e.clientX - rect.left, my = e.clientY - rect.top;
     const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
     panX = mx - (mx - panX) * factor;
     panY = my - (my - panY) * factor;
@@ -704,7 +705,9 @@ window.addEventListener('mousemove', function(e) {
         const rect = document.getElementById('canvasArea').getBoundingClientRect();
         const pos = unproject(e.clientX - rect.left, e.clientY - rect.top);
         draggingVertex.x = pos.x; draggingVertex.y = pos.y;
-        dragMoved = true; renderGraph(); return;
+        dragMoved = true;
+        renderGraph();
+        return;
     }
     if (!isPanning) return;
     panX = e.clientX - panStart.x;
@@ -713,6 +716,13 @@ window.addEventListener('mousemove', function(e) {
 });
 
 window.addEventListener('mouseup', function() {
+    if (draggingVertex !== null && dragMoved) {
+        callC('move_vertex', [
+            draggingVertex.id,
+            draggingVertex.x.toFixed(3),
+            draggingVertex.y.toFixed(3)
+        ]);
+    }
     draggingVertex = null; isPanning = false; svg.style.cursor = '';
 });
 
@@ -733,7 +743,6 @@ document.getElementById('zoomFit').addEventListener('click', function() {
 });
 window.addEventListener('resize', function() { if (graphData) { fitGraph(); renderGraph(); } });
 
-// ── KEYBOARD SHORTCUTS ────────────────────────────────────────────────────────
 window.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         setEditMode(MODE.NORMAL);

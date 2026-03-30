@@ -44,14 +44,6 @@ void test_planar_graph() {
 
 }
 
-void test_planar_circle() {
-    const int nb_vertex = 50;
-    Graph *g = test_circle(nb_vertex);
-
-    save_graph(g, "circle_graph.txt");
-    delete_graph(g);
-}
-
 void test_tree() {
     const int nb_vertex = 50;
     Graph* g = create_graph();
@@ -179,15 +171,52 @@ void test_faces() {
     delete_graph(g);
 }
 
+void test_carre() {
+    Graph *g = create_graph();
+    create_vertex(g, 0, 0);
+    create_vertex(g, 1, 0);
+    create_vertex(g, 1, 1);
+    create_vertex(g, 0, 1);
+    create_edge(g, 0, 1);
+    create_edge(g, 1, 2);
+    create_edge(g, 2, 3);
+    create_edge(g, 3, 0);
+    create_edge(g, 0, 2);
+    find_faces(g);
+    horton(g);
+    printf("Cycles:");
+    for (int i = 0; i < 7; i++) {
+        for (int e = 0; e < g->nb_edges; e++) {
+
+            if (g->horton_cycles[i].edges_ids[e] == 1) {
+                printf("(%d %d)", g->edges[e].u, g->edges[e].v);
+            }
+        }
+        printf("\n");
+    }
+    printf("Number of faces: %d\n", g->nb_faces);
+    for (int i = 0; i < g->nb_faces; i++) {
+        printf("Face %d: length = %d, edges = [", i + 1, g->faces[i].length);
+        for (int e = 0; e < g->nb_edges; e++) {
+            if (g->faces[i].edges_ids[e] == 1) {
+                printf("(%d %d)", g->edges[e].u, g->edges[e].v);
+            }
+        }
+        printf("]\n");
+    }
+    printf("basis:");
+    for (int e = 0; e < g->nb_edges; e++) {}
+    delete_graph(g);}
+
 int main() {
     srand(time(NULL));
     // test_permutations();
     // test_tree();
-    // test_planar_circle();
     // test_planar_graph();
     //test_all_edges_creation();
     //test_fisher_yates();
     //test_faces();
+    test_carre();
 
     return 0;
 }
