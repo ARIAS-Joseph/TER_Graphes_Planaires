@@ -51,8 +51,11 @@ static void reset_bases(void) {
         g->faces[i].edges_labels = NULL;
         g->faces[i].vertices_ids = NULL;
     }
-    g->nb_faces   = 0;
-    g->face_basis = -1;
+    g->nb_faces         = 0;
+    g->face_basis       = -1;
+    free(g->face_basis_outer);
+    g->face_basis_outer    = NULL;
+    g->nb_face_basis_outer = 0;
 }
 
 /**
@@ -100,12 +103,17 @@ void wasm_generate_outer_planar(int nb_v, int nb_e, int n_horton) {
 }
 
 /**
- * Load a graph from a text string (the format produced by save_graph).
- * The text is written to a MEMFS temp file so that the existing load_graph()
- * implementation can be reused without modification.
+ * @brief Write the graph text to the MEMFS temp file.
  *
- * After this call, the bases already stored in the file are available; there
- * is no need to re-run Horton unless the caller wishes to find more bases.
+ * IMPORTANT: do NOT call this via ccall() with a 'string' argument for
+ * large files.  ccall() uses allocateUTF8OnStack() which is limited to
+ * the WASM stack size (typically 64 KB).  A file with 1000 bases can be
+ * several megabytes — this overflows the stack and causes "index out of
+ * bounds" errors.
+ *
+ * The correct approach is to write the file from JS using Module.FS.writeFile()
+ * and then call wasm_load_from_file() with no arguments.
+ * wasm_load_from_text() is kept only for small graphs / backward compatibility.
  *
  * @param text  NUL-terminated string in the save_graph file format.
  */
@@ -115,7 +123,24 @@ void wasm_load_from_text(const char *text) {
     if (!f) return;
     fputs(text, f);
     fclose(f);
+    if (g) delete_graph(g);
+    g = create_graph();
+    load_graph(g, "/tmp/wasm_graph.txt");
+}
 
+/**
+ * @brief Load a graph from the MEMFS temp file /tmp/wasm_graph.txt.
+ *
+ * The file must have been written beforehand using Module.FS.writeFile() from
+ * JavaScript.  This avoids the WASM stack overflow that occurs when ccall()
+ * tries to copy a large string via allocateUTF8OnStack().
+ *
+ * JS usage:
+ *   Module.FS.writeFile('/tmp/wasm_graph.txt', text);
+ *   Module._wasm_load_from_file();
+ */
+EMSCRIPTEN_KEEPALIVE
+void wasm_load_from_file(void) {
     if (g) delete_graph(g);
     g = create_graph();
     load_graph(g, "/tmp/wasm_graph.txt");
@@ -203,10 +228,21 @@ void wasm_move_vertex(int vid, double x, double y) {
     move_vertex(g, vid, x, y);
 
     g->face_basis = -1;
+    free(g->face_basis_outer);
+    g->face_basis_outer    = NULL;
+    g->nb_face_basis_outer = 0;
+
     for (int b = 0; b < g->nb_minimal_bases; b++) {
-        if (g->minimals_basis[b].is_faces) {
-            g->face_basis = b + 1; /* 1-based, comme dans greedy_cycle_cover */
-            break;
+        if (g->minimals_basis[b].is_faces)
+            g->face_basis = b;
+        if (g->minimals_basis[b].is_faces_outer) {
+            int *tmp = realloc(g->face_basis_outer,
+                               (g->nb_face_basis_outer + 1) * sizeof(int));
+            if (tmp) {
+                g->face_basis_outer = tmp;
+                g->face_basis_outer[g->nb_face_basis_outer] = b;
+                g->nb_face_basis_outer++;
+            }
         }
     }
 }
@@ -249,22 +285,34 @@ EMSCRIPTEN_KEEPALIVE int wasm_nb_bases(void) { return g ? g->nb_minimal_bases : 
 EMSCRIPTEN_KEEPALIVE int wasm_basis_dimension(void) { return g ? g->basis_dimension : 0;  }
 
 /**
- * Index of the face basis (1-based, to match the legacy file format) or -1.
- *
- * The C struct stores a 0-based index in g->face_basis; we add 1 here so
- * that the JS comparison  `d.faceBasis === bIdx + 1`  in buildSidebar
- * works without any change to visualizer2.js.
+ * Index of the face basis (0-based) or -1 if none found yet.
  */
 EMSCRIPTEN_KEEPALIVE
 int wasm_face_basis(void) {
-    /*
-     * g->face_basis est stocké EN 1-BASED dans greedy_cycle_cover :
-     *   g->face_basis = g->nb_minimal_bases + 1;   (avant l'incrément)
-     * Le JS compare avec (bIdx + 1) où bIdx est 0-based.
-     * Ne PAS ajouter de +1 ici, ce serait doubler le décalage.
-     */
     if (!g || g->face_basis < 0) return -1;
     return g->face_basis;
+}
+
+/**
+ * @brief Number of bases that equal the outer face + D-1 interior faces.
+ *
+ * Returns 0 if none have been found yet.
+ */
+EMSCRIPTEN_KEEPALIVE
+int wasm_nb_face_basis_outer(void) {
+    if (!g) return 0;
+    return g->nb_face_basis_outer;
+}
+
+/**
+ * @brief Return the i-th (0-based) entry in the face_basis_outer array.
+ *
+ * Each entry is a 1-based basis index.  Returns -1 if @p i is out of range.
+ */
+EMSCRIPTEN_KEEPALIVE
+int wasm_face_basis_outer_at(int i) {
+    if (!g || i < 0 || i >= g->nb_face_basis_outer) return -1;
+    return g->face_basis_outer[i];
 }
 
 /** 1 if the vertex has been deleted, 0 otherwise. */

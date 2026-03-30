@@ -2,22 +2,12 @@
  * @file graph.c
  * @brief Implementation of the planar graph data structure and associated algorithms.
  *
- * This file provides the full implementation of the Graph structure, including
- * vertex and edge management, face detection, shortest-path computation, and
- * Horton's minimal cycle basis algorithm.
+ * This file provides the full implementation of the Graph structure, including vertex and edge
+ * management, face detection, shortest-path computation, and Horton's minimal cycle basis
+ * algorithm.
  *
- * ### Self-contained invariant: topology mutations auto-invalidate stale data
- *
- * Any function that changes the graph topology (create_edge, delete_edge,
- * create_vertex, delete_vertex, split_edge) automatically calls the internal
- * helper invalidate_bases() before modifying the structure.  This guarantees:
- *
- *  - cycle basis vectors (edges_ids) are never read with a stale nb_edges size,
- *  - face data is not compared against a topology it was not computed for,
- *  - callers external to this file never need to manually reset derived state.
- *
- * Multiple consecutive calls to invalidate_bases() are safe: after the first
- * call nb_faces == 0 and minimals_basis == NULL, so subsequent calls are no-ops.
+ * Any function that changes the graph topology (create_edge, delete_edge, create_vertex,
+ * delete_vertex, split_edge) automatically calls invalidate_bases() before modifying the structure.
  */
 
 #include <stdint.h>
@@ -37,14 +27,7 @@
  *  - all minimal cycle bases (edges_ids vectors sized to the old nb_edges),
  *  - all per-face path data (edges_ids, edges_labels, vertices_ids).
  *
- * Resets the corresponding counters so that algorithms recompute from scratch
- * on the new topology.
- *
- * This function is @b idempotent: after the first call nb_faces == 0 and
- * minimals_basis == NULL, so every subsequent call traverses empty loops.
- *
- * @note This function is static.  It is an implementation detail of graph.c and
- *       is called automatically by every topology-mutating public function.
+ * Resets the corresponding counters so that algorithms recompute from scratch on the new topology.
  *
  * @param g Graph whose derived data must be invalidated.
  */
@@ -67,6 +50,7 @@ static void invalidate_bases(Graph *g) {
         g->basis_dimension = 0;
     }
 
+    /* Free all face-related structures */
     for (int i = 0; i < g->nb_faces; i++) {
         free(g->faces[i].edges_ids);
         free(g->faces[i].edges_labels);
@@ -76,16 +60,18 @@ static void invalidate_bases(Graph *g) {
         g->faces[i].vertices_ids = NULL;
     }
     g->nb_faces = 0;
+    g->outer_face = -1;
     g->face_basis = -1;
+    g->nb_face_basis_outer = 0;
+    g->face_basis_outer = NULL;
 }
 
 /**
  * @brief Allocate and initialise an empty graph.
  *
- * Creates a new Graph with default dynamic-array capacities for vertices, edges,
- * neighbour lists, and Horton cycles.  All algorithm-result fields
- * (edge_indices, predecessors, distances, minimals_basis, face data) are
- * initialised to NULL or zero.
+ * Creates a new Graph with default dynamic-array capacities for vertices, edges, neighbor lists,
+ * and Horton cycles. All algorithm-result fields (edge_indices, predecessors, distances,
+ * minimals_basis, face data) are initialised to NULL or zero.
  *
  * @return Pointer to the newly created graph.  Exits on allocation failure.
  */
@@ -99,7 +85,8 @@ Graph *create_graph() {
 
     graph->neighbors = malloc(graph->capacity_vertices * sizeof(Neighbor_list));
     if (!graph->neighbors) {
-        free(graph->vertices); free(graph);
+        free(graph->vertices);
+        free(graph);
         perror("create_graph: neighbors"); exit(1);
     }
     for (int i = 0; i < graph->capacity_vertices; i++) {
@@ -134,7 +121,9 @@ Graph *create_graph() {
     }
 
     graph->face_basis = -1;
-    graph->face_basis_outer = -1;
+    graph->outer_face = -1;
+    graph->nb_face_basis_outer = 0;
+    graph->face_basis_outer = NULL;
     graph->edge_indices = NULL;
     graph->predecessors = NULL;
     graph->distances = NULL;
@@ -148,11 +137,11 @@ Graph *create_graph() {
 /**
  * @brief Free all memory associated with a graph.
  *
- * Releases vertices, edges, neighbour lists (including the angles arrays),
- * algorithm matrices (edge_indices, predecessors, distances), face path arrays,
- * Horton cycles, minimal cycle bases, and the graph structure itself.
+ * Releases vertices, edges, neighbor lists (including the angles arrays), algorithm matrices
+ * (edge_indices, predecessors, distances), face path arrays, Horton cycles, minimal cycle bases,
+ * and the graph structure itself.
  *
- * @param g Graph to destroy.  No-op if NULL.
+ * @param g Graph to destroy.
  */
 void delete_graph(Graph *g) {
     if (!g) return;
@@ -171,6 +160,7 @@ void delete_graph(Graph *g) {
     free(g->edge_indices);
     free(g->predecessors);
     free(g->distances);
+    free(g->face_basis_outer);
 
     if (g->faces) {
         for (int i = 0; i < g->nb_faces; i++) {
@@ -209,17 +199,16 @@ void delete_graph(Graph *g) {
  * @brief Save the graph to a text file.
  *
  * File format (all IDs are re-numbered sequentially, deleted elements skipped):
- * @code
- * V E M D face_basis
- * seq_id  x  y          (V vertex lines)
- * seq_id  u  v          (E edge lines)
- * eid ...               (M * D cycle lines: space-separated edge IDs per cycle)
- * @endcode
+ * V E M D face_basis outer_face_basis_1 ... outer_face_basis_n
+ * vertex_id x_coordinate y_coordinate (V vertex lines)
+ * edge_id id_vertex_u id_vertex_v (E edge lines)
+ * edge_id ... (M * D cycle lines: space-separated edge IDs per cycle)
  *
- * @param g        Graph to save.
+ * @param g Graph to save.
  * @param filename Output file path.
  */
 void save_graph(const Graph *g, const char *filename) {
+
     FILE *file = fopen(filename, "w");
     if (!file) { perror("save_graph: fopen"); exit(1); }
     if (!g || !g->vertices || !g->edges) {
@@ -227,33 +216,42 @@ void save_graph(const Graph *g, const char *filename) {
     }
 
     /* Build remapping tables: old index → sequential ID, -1 if deleted */
-    int *vid_map = calloc(g->nb_vertex, sizeof(int));
-    int *eid_map = calloc(g->nb_edges,  sizeof(int));
-    if (!vid_map || !eid_map) { perror("save_graph: maps"); exit(1); }
+    int *vertices_id_map = calloc(g->nb_vertex, sizeof(int));
+    int *edges_id_map = calloc(g->nb_edges,  sizeof(int));
+    if (!vertices_id_map || !edges_id_map) { perror("save_graph: maps"); exit(1); }
 
     int nb_v = 0, nb_e = 0;
     for (int i = 0; i < g->nb_vertex; i++)
-        vid_map[i] = g->vertices[i].deleted ? -1 : nb_v++;
+        vertices_id_map[i] = g->vertices[i].deleted ? -1 : nb_v++;
     for (int i = 0; i < g->nb_edges; i++)
-        eid_map[i] = g->edges[i].deleted    ? -1 : nb_e++;
+        edges_id_map[i] = g->edges[i].deleted ? -1 : nb_e++;
 
-    if (g->minimals_basis)
-        fprintf(file, "%d %d %d %d %d\n",
-                nb_v, nb_e, g->nb_minimal_bases, g->basis_dimension, g->face_basis);
-    else
-        fprintf(file, "%d %d 0 0 -1\n", nb_v, nb_e);
+    if (g->minimals_basis) {
+        /* Format: V E M D face_basis nb_outer_bases [idx1 idx2 ...]
+         * face_basis        : 1-based index of the basis = interior faces, or -1
+         * nb_outer_bases    : number of bases that equal (outer face + D-1 interior faces)
+         * idx1 idx2 ...     : 1-based indices of those bases (absent when nb_outer_bases == 0) */
+        fprintf(file, "%d %d %d %d %d %d",
+                nb_v, nb_e, g->nb_minimal_bases, g->basis_dimension,
+                g->face_basis, g->nb_face_basis_outer);
+        for (int i = 0; i < g->nb_face_basis_outer; i++)
+            fprintf(file, " %d", g->face_basis_outer[i]);
+        fprintf(file, "\n");
+    } else {
+        fprintf(file, "%d %d 0 0 -1 0\n", nb_v, nb_e);
+    }
 
     for (int i = 0; i < g->nb_vertex; i++) {
         if (g->vertices[i].deleted) continue;
-        fprintf(file, "%d %lf %lf\n", vid_map[i], g->vertices[i].x, g->vertices[i].y);
+        fprintf(file, "%d %lf %lf\n", vertices_id_map[i], g->vertices[i].x, g->vertices[i].y);
     }
 
     for (int i = 0; i < g->nb_edges; i++) {
         if (g->edges[i].deleted) continue;
-        const int nu = vid_map[g->edges[i].u];
-        const int nv = vid_map[g->edges[i].v];
+        const int nu = vertices_id_map[g->edges[i].u];
+        const int nv = vertices_id_map[g->edges[i].v];
         if (nu < 0 || nv < 0) continue;
-        fprintf(file, "%d %d %d\n", eid_map[i], nu, nv);
+        fprintf(file, "%d %d %d\n", edges_id_map[i], nu, nv);
     }
 
     if (g->minimals_basis) {
@@ -262,29 +260,24 @@ void save_graph(const Graph *g, const char *filename) {
                 for (int e = 0; e < g->nb_edges; e++) {
                     if (g->edges[e].deleted) continue;
                     if (g->minimals_basis[b].cycles[i].edges_ids[e] == 1)
-                        fprintf(file, "%d ", eid_map[e]);
+                        fprintf(file, "%d ", edges_id_map[e]);
                 }
                 fprintf(file, "\n");
             }
         }
     }
 
-    free(vid_map);
-    free(eid_map);
+    free(vertices_id_map);
+    free(edges_id_map);
     fclose(file);
 }
 
 /**
  * @brief Load a graph from a file produced by save_graph().
  *
- * @p g must be a freshly created, empty graph.  After loading, the is_faces
- * flag of each basis is restored from the face_basis field in the file header.
+ * g must be a newly created and empty graph.
  *
- * @note create_edge() and create_vertex() are called internally during loading
- *       and will invoke invalidate_bases() on each call — this is harmless
- *       since no bases have been added yet at that point.
- *
- * @param g        Destination graph (must be empty).
+ * @param g Destination graph (must be empty).
  * @param filename File to read.
  */
 void load_graph(Graph *g, const char *filename) {
@@ -292,11 +285,31 @@ void load_graph(Graph *g, const char *filename) {
     if (!file) { perror("load_graph: fopen"); exit(1); }
 
     int nb_vertex, nb_edges, nb_minimal_bases, basis_dimension, face_basis;
-    if (fscanf(file, "%d %d %d %d %d\n",
-               &nb_vertex, &nb_edges, &nb_minimal_bases,
-               &basis_dimension, &face_basis) != 5) {
+    int nb_face_basis_outer = 0;
+
+    /* Read 6 mandatory fields: V E M D face_basis nb_outer_bases */
+    int n_read = fscanf(file, "%d %d %d %d %d %d",
+                        &nb_vertex, &nb_edges, &nb_minimal_bases,
+                        &basis_dimension, &face_basis, &nb_face_basis_outer);
+    if (n_read < 5) {
         fclose(file); perror("load_graph: header"); exit(1);
     }
+    /* Treat a legacy -1 sentinel as "no outer bases" */
+    if (nb_face_basis_outer < 0) nb_face_basis_outer = 0;
+
+    /* Read the (possibly empty) list of outer-basis indices that follows on the same line */
+    int *face_basis_outer_arr = NULL;
+    if (nb_face_basis_outer > 0) {
+        face_basis_outer_arr = malloc(nb_face_basis_outer * sizeof(int));
+        if (!face_basis_outer_arr) { perror("load_graph: face_basis_outer_arr"); exit(1); }
+        for (int i = 0; i < nb_face_basis_outer; i++) {
+            if (fscanf(file, "%d", &face_basis_outer_arr[i]) != 1) {
+                fclose(file); perror("load_graph: face_basis_outer index"); exit(1);
+            }
+        }
+    }
+    /* Consume the rest of the header line */
+    { char tmp[512]; fgets(tmp, sizeof(tmp), file); }
 
     fprintf(stdout, "Loading vertices...\n"); fflush(stdout);
     for (int i = 0; i < nb_vertex; i++) {
@@ -318,16 +331,13 @@ void load_graph(Graph *g, const char *filename) {
     { char tmp[256]; fgets(tmp, sizeof(tmp), file); } /* consume trailing newline */
 
     if (nb_minimal_bases > 0 && basis_dimension > 0) {
-        /*
-         * Directly populate the bases without going through the public API,
-         * since bases are being restored (not computed), so invalidate_bases()
-         * must NOT be triggered here.
-         */
         g->minimals_basis = calloc(nb_minimal_bases, sizeof(Minimal_basis));
         if (!g->minimals_basis) { perror("load_graph: minimals_basis"); exit(1); }
-        g->nb_minimal_bases = nb_minimal_bases;
-        g->basis_dimension  = basis_dimension;
-        g->face_basis       = face_basis;
+        g->nb_minimal_bases      = nb_minimal_bases;
+        g->basis_dimension       = basis_dimension;
+        g->face_basis            = face_basis;
+        g->nb_face_basis_outer   = nb_face_basis_outer;
+        g->face_basis_outer      = face_basis_outer_arr; /* transfer ownership */
 
         fprintf(stdout, "Loading bases (nb=%d dim=%d)...\n",
                 nb_minimal_bases, basis_dimension); fflush(stdout);
@@ -336,19 +346,36 @@ void load_graph(Graph *g, const char *filename) {
             g->minimals_basis[b].cycles = calloc(basis_dimension, sizeof(Path));
             if (!g->minimals_basis[b].cycles) { perror("load_graph: cycles"); exit(1); }
 
-            /* Restore the is_faces flag: face_basis is 1-based, b is 0-based */
+            /* Restore face-basis flags: both indices are now 0-based */
             g->minimals_basis[b].is_faces =
-                (face_basis > 0 && face_basis == b + 1) ? 1 : 0;
+                (face_basis >= 0 && face_basis == b) ? 1 : 0;
+
+            /* is_faces_outer: check if b appears in the outer-basis array */
+            g->minimals_basis[b].is_faces_outer = 0;
+            for (int k = 0; k < nb_face_basis_outer; k++) {
+                if (face_basis_outer_arr && face_basis_outer_arr[k] == b) {
+                    g->minimals_basis[b].is_faces_outer = 1;
+                    break;
+                }
+            }
+
+            /*
+             * Line buffer on the heap, not the stack.
+             * char line[65536] on the WASM stack overflows the default 64 KB
+             * WASM stack immediately when basis_dimension > 0.
+             */
+            const int LINE_BUF = 1 << 20; /* 1 MB — handles very long cycle lines */
+            char *line = malloc(LINE_BUF);
+            if (!line) { perror("load_graph: line buffer"); exit(1); }
 
             for (int i = 0; i < basis_dimension; i++) {
                 g->minimals_basis[b].cycles[i].edges_ids =
                     calloc(g->nb_edges, sizeof(uint32_t));
                 if (!g->minimals_basis[b].cycles[i].edges_ids) {
-                    perror("load_graph: edges_ids"); exit(1);
+                    free(line); perror("load_graph: edges_ids"); exit(1);
                 }
 
-                char line[2048];
-                if (!fgets(line, sizeof(line), file)) break;
+                if (!fgets(line, LINE_BUF, file)) break;
 
                 int count = 0;
                 char *tok = strtok(line, " \t\r\n");
@@ -362,6 +389,7 @@ void load_graph(Graph *g, const char *filename) {
                 }
                 g->minimals_basis[b].cycles[i].length = count;
             }
+            free(line);
         }
     }
 
@@ -372,15 +400,11 @@ void load_graph(Graph *g, const char *filename) {
 /**
  * @brief Add a vertex at the given coordinates.
  *
- * Appends a new Vertex and initialises its (empty) neighbour list.  Doubles
- * array capacities when needed.
- *
- * @note Calls invalidate_bases() because adding a vertex changes V, which
- *       changes the cycle-space dimension D = E − V + 1, rendering all
- *       existing cycle basis vectors invalid.
+ * Appends a new Vertex and initializes its (empty) neighbor list. Doubles array capacities when
+ * needed.
  *
  * @param g  Graph to modify.
- * @param x  X coordinate (used for visualisation and face detection).
+ * @param x  X coordinate.
  * @param y  Y coordinate.
  */
 void create_vertex(Graph *g, const double x, const double y) {
@@ -391,25 +415,25 @@ void create_vertex(Graph *g, const double x, const double y) {
         g->capacity_vertices *= 2;
         const int new_cap = g->capacity_vertices;
 
-        Vertex *tv = realloc(g->vertices, new_cap * sizeof(Vertex));
-        if (!tv) { perror("create_vertex: vertices"); exit(1); }
-        g->vertices = tv;
+        Vertex *temp_vertex = realloc(g->vertices, new_cap * sizeof(Vertex));
+        if (!temp_vertex) { perror("create_vertex: vertices"); exit(1); }
+        g->vertices = temp_vertex;
 
-        Neighbor_list *tn = realloc(g->neighbors, new_cap * sizeof(Neighbor_list));
-        if (!tn) { perror("create_vertex: neighbors"); exit(1); }
-        g->neighbors = tn;
+        Neighbor_list *temp_neighbors = realloc(g->neighbors, new_cap * sizeof(Neighbor_list));
+        if (!temp_neighbors) { perror("create_vertex: neighbors"); exit(1); }
+        g->neighbors = temp_neighbors;
 
         for (int i = old_cap; i < new_cap; i++) {
             g->neighbors[i].neighbors = NULL;
-            g->neighbors[i].angles    = NULL;
-            g->neighbors[i].count     = 0;
-            g->neighbors[i].capacity  = 0;
+            g->neighbors[i].angles = NULL;
+            g->neighbors[i].count = 0;
+            g->neighbors[i].capacity = 0;
         }
 
-        Path *tf = realloc(g->faces,
+        Path *temp_faces = realloc(g->faces,
             (2 + g->capacity_edges + new_cap) * sizeof(Path));
-        if (!tf) { perror("create_vertex: faces"); exit(1); }
-        g->faces = tf;
+        if (!temp_faces) { perror("create_vertex: faces"); exit(1); }
+        g->faces = temp_faces;
     }
 
     const int id = g->nb_vertex;
@@ -418,16 +442,16 @@ void create_vertex(Graph *g, const double x, const double y) {
 }
 
 /**
- * @brief Add an undirected edge between two existing vertices.
+ * @brief Add an edge between two existing vertices.
  *
- * Inserts the edge into the edges array and updates both endpoints' neighbour
- * lists, maintaining sorted polar-angle order (required by find_faces()).
+ * Inserts the edge into the edges array and updates both endpoints' neighbor
+ * lists, maintaining sorted polar-angle order.
  * Doubles array capacities when needed.
  *
  * @note Calls invalidate_bases() because adding an edge increases nb_edges,
  *       making all existing edges_ids vectors (sized to the old nb_edges) invalid.
  *
- * @param g     Graph to modify.
+ * @param g Graph to modify.
  * @param v1_id ID of the first endpoint (must be valid and not deleted).
  * @param v2_id ID of the second endpoint (must be valid and not deleted).
  */
@@ -437,44 +461,44 @@ void create_edge(Graph *g, const int v1_id, const int v2_id) {
     if (g->nb_edges == g->capacity_edges) {
         g->capacity_edges *= 2;
 
-        Edge *te = realloc(g->edges, g->capacity_edges * sizeof(Edge));
-        if (!te) { perror("create_edge: edges"); exit(1); }
-        g->edges = te;
+        Edge *temp_edges = realloc(g->edges, g->capacity_edges * sizeof(Edge));
+        if (!temp_edges) { perror("create_edge: edges"); exit(1); }
+        g->edges = temp_edges;
 
-        Path *tf = realloc(g->faces,
+        Path *temp_faces = realloc(g->faces,
             (2 + g->capacity_edges + g->capacity_vertices) * sizeof(Path));
-        if (!tf) { perror("create_edge: faces"); exit(1); }
-        g->faces = tf;
+        if (!temp_faces) { perror("create_edge: faces"); exit(1); }
+        g->faces = temp_faces;
     }
 
-    /* Update sorted neighbour lists for both endpoints */
+    /* Update sorted neighbor lists for both endpoints */
     const int ids[2] = {v1_id, v2_id};
     for (int i = 0; i < 2; i++) {
         const double angle = atan2l(
             g->vertices[ids[(i + 1) % 2]].y - g->vertices[ids[i]].y,
             g->vertices[ids[(i + 1) % 2]].x - g->vertices[ids[i]].x);
 
-        Neighbor_list *nl = &g->neighbors[ids[i]];
-        if (nl->count == nl->capacity) {
-            nl->capacity = nl->capacity == 0 ? 4 : nl->capacity * 2;
-            int *tn = realloc(nl->neighbors, nl->capacity * sizeof(int));
-            if (!tn) { perror("create_edge: nl->neighbors"); exit(1); }
-            nl->neighbors = tn;
-            double *ta = realloc(nl->angles, nl->capacity * sizeof(double));
+        Neighbor_list *neigh_list = &g->neighbors[ids[i]];
+        if (neigh_list->count == neigh_list->capacity) {
+            neigh_list->capacity = neigh_list->capacity == 0 ? 4 : neigh_list->capacity * 2;
+            int *temp_neigh = realloc(neigh_list->neighbors, neigh_list->capacity * sizeof(int));
+            if (!temp_neigh) { perror("create_edge: nl->neighbors"); exit(1); }
+            neigh_list->neighbors = temp_neigh;
+            double *ta = realloc(neigh_list->angles, neigh_list->capacity * sizeof(double));
             if (!ta) { perror("create_edge: nl->angles"); exit(1); }
-            nl->angles = ta;
+            neigh_list->angles = ta;
         }
 
         /* Insertion sort to maintain ascending angle order */
-        int pos = nl->count;
-        while (pos > 0 && nl->angles[pos - 1] > angle) {
-            nl->neighbors[pos] = nl->neighbors[pos - 1];
-            nl->angles[pos]    = nl->angles[pos - 1];
+        int pos = neigh_list->count;
+        while (pos > 0 && neigh_list->angles[pos - 1] > angle) {
+            neigh_list->neighbors[pos] = neigh_list->neighbors[pos - 1];
+            neigh_list->angles[pos]    = neigh_list->angles[pos - 1];
             pos--;
         }
-        nl->neighbors[pos] = ids[(i + 1) % 2];
-        nl->angles[pos] = angle;
-        nl->count++;
+        neigh_list->neighbors[pos] = ids[(i + 1) % 2];
+        neigh_list->angles[pos] = angle;
+        neigh_list->count++;
     }
 
     g->edges[g->nb_edges] =
@@ -483,15 +507,12 @@ void create_edge(Graph *g, const int v1_id, const int v2_id) {
 }
 
 /**
- * @brief Mark an edge as deleted and remove it from both endpoints' neighbour lists.
+ * @brief Mark an edge as deleted and remove it from both neighbor lists.
  *
  * The edge slot is kept in the array (its index is preserved) but its deleted
  * flag is set to 1 so all algorithms skip it.
  *
- * @note Calls invalidate_bases() because existing cycle basis vectors may
- *       reference this edge ID, making the stored bases semantically invalid.
- *
- * @param g    Graph to modify.
+ * @param g Graph to modify.
  * @param e_id Index of the edge to delete.
  */
 void delete_edge(Graph *g, const int e_id) {
@@ -502,16 +523,16 @@ void delete_edge(Graph *g, const int e_id) {
     const int u = g->edges[e_id].u;
     const int v = g->edges[e_id].v;
 
-    /* Remove v from u's neighbour list (swap-with-last, O(1)) */
+    /* Remove v from u's neighbor list */
     for (int i = 0; i < g->neighbors[u].count; i++) {
         if (g->neighbors[u].neighbors[i] == v) {
             const int last = --g->neighbors[u].count;
             g->neighbors[u].neighbors[i] = g->neighbors[u].neighbors[last];
-            g->neighbors[u].angles[i]    = g->neighbors[u].angles[last];
+            g->neighbors[u].angles[i] = g->neighbors[u].angles[last];
             break;
         }
     }
-    /* Remove u from v's neighbour list */
+    /* Remove u from v's neighbor list */
     for (int i = 0; i < g->neighbors[v].count; i++) {
         if (g->neighbors[v].neighbors[i] == u) {
             const int last = --g->neighbors[v].count;
@@ -527,7 +548,7 @@ void delete_edge(Graph *g, const int e_id) {
  *
  * invalidate_bases() is called implicitly through each delete_edge() call.
  *
- * @param g    Graph to modify.
+ * @param g Graph to modify.
  * @param v_id ID of the vertex to delete.
  */
 void delete_vertex(Graph *g, const int v_id) {
@@ -540,23 +561,20 @@ void delete_vertex(Graph *g, const int v_id) {
 }
 
 /**
- * @brief Subdivide an edge by inserting @p number_vertex_to_add intermediate vertices.
+ * @brief Subdivide an edge by inserting number_vertex_to_add intermediate vertices.
  *
  * Deletes edge (u, v) and replaces it with the path
- * u − w₁ − … − wₖ − v, where each wᵢ lies at equal intervals along (u, v).
+ * u − w1 − … − wk − v, where each wi lies at equal intervals along (u, v).
  *
- * invalidate_bases() is called implicitly through delete_edge() and
- * create_edge() / create_vertex(); all calls are idempotent.
- *
- * @param g                    Graph to modify.
- * @param edge_id              Index of the edge to split.
+ * @param g Graph to modify.
+ * @param edge_id Index of the edge to split.
  * @param number_vertex_to_add Number of intermediate vertices to insert (k ≥ 1).
  */
 void split_edge(Graph *g, const int edge_id, const int number_vertex_to_add) {
-    const int    u   = g->edges[edge_id].u;
-    const int    v   = g->edges[edge_id].v;
-    const double ux  = g->vertices[u].x, uy = g->vertices[u].y;
-    const double vx  = g->vertices[v].x, vy = g->vertices[v].y;
+    const int u = g->edges[edge_id].u;
+    const int v = g->edges[edge_id].v;
+    const double ux = g->vertices[u].x, uy = g->vertices[u].y;
+    const double vx = g->vertices[v].x, vy = g->vertices[v].y;
 
     delete_edge(g, edge_id);
 
@@ -574,32 +592,29 @@ void split_edge(Graph *g, const int edge_id, const int number_vertex_to_add) {
 /**
  * @brief Subdivide multiple edges, distributing intermediate vertices evenly.
  *
- * The @p number_vertex_to_add vertices are distributed across all edges as
+ * The number_vertex_to_add vertices are distributed across all edges as
  * evenly as possible; the first (number_vertex_to_add % number_edge_to_split)
  * edges each receive one extra vertex.
  *
- * @param g                    Graph to modify.
- * @param edge_ids             Array of edge indices to split.
+ * @param g Graph to modify.
+ * @param edge_ids Array of edge indices to split.
  * @param number_edge_to_split Number of edges to split.
  * @param number_vertex_to_add Total number of intermediate vertices to insert.
  */
 void split_edges(Graph *g, const int *edge_ids,
                  const int number_edge_to_split, const int number_vertex_to_add) {
     if (number_edge_to_split <= 0) return;
-    const int base  = number_vertex_to_add / number_edge_to_split;
+    const int base = number_vertex_to_add / number_edge_to_split;
     const int extra = number_vertex_to_add % number_edge_to_split;
     for (int i = 0; i < number_edge_to_split; i++)
         split_edge(g, edge_ids[i], base + (i < extra ? 1 : 0));
 }
 
 /**
- * @brief Sort a vertex's neighbour list by polar angle in ascending order.
+ * @brief Sort a vertex's neighbor list by polar angle using atan2 in ascending order.
  *
- * Uses bubble sort on the cached angles array.  O(deg²) but degrees are small
- * for planar graphs.
- *
- * @param g    Graph.
- * @param v_id Vertex whose neighbour list is to be sorted.
+ * @param g Graph.
+ * @param v_id Vertex whose neighbor list is to be sorted.
  */
 void sort_neighbors_by_atan(const Graph *g, const int v_id) {
     const Neighbor_list *nl = &g->neighbors[v_id];
@@ -621,15 +636,10 @@ void sort_neighbors_by_atan(const Graph *g, const int v_id) {
  * @brief Move a vertex to new coordinates and update all geometry-derived data.
  *
  * Recalculates the stored polar angles for the moved vertex and all its
- * neighbours, re-sorts neighbour lists, then recomputes the face decomposition.
+ * neighbors, re-sorts neighbor lists, then recomputes the face decomposition.
  *
- * @note Moving a vertex does NOT change the graph topology (V, E, and adjacency
- *       are unchanged), so cycle bases remain valid and invalidate_bases() is
- *       NOT called.  Only face data changes because the planar embedding may
- *       change when vertex positions change.
- *
- * @param g     Graph to modify.
- * @param v     ID of the vertex to move.
+ * @param g Graph to modify.
+ * @param v ID of the vertex to move.
  * @param new_x New X coordinate.
  * @param new_y New Y coordinate.
  */
@@ -637,11 +647,6 @@ void move_vertex(Graph *g, const int v, const double new_x, const double new_y) 
     g->vertices[v].x = new_x;
     g->vertices[v].y = new_y;
 
-    /*
-     * Recompute stored angles BEFORE sorting.
-     * sort_neighbors_by_atan() sorts by cached values; calling it with stale
-     * angles would produce an incorrect order and corrupt face detection.
-     */
     Neighbor_list *nlv = &g->neighbors[v];
     for (int i = 0; i < nlv->count; i++) {
         const int nb = nlv->neighbors[i];
@@ -666,14 +671,14 @@ void move_vertex(Graph *g, const int v, const double new_x, const double new_y) 
 }
 
 /**
- * @brief Allocate and initialise the n×n matrices for Horton's algorithm.
+ * @brief Allocate and initialize the n×n matrices for Horton's algorithm.
  *
  * Allocates (or reallocates) three n×n integer matrices:
  *  - edge_indices[u*n+v]: index of edge (u,v) in g->edges, or -1,
  *  - predecessors[u*n+v]: predecessor of v on the shortest path from u,
- *  - distances[u*n+v]:    BFS distance from u to v.
+ *  - distances[u*n+v]: BFS distance from u to v.
  *
- * All entries initialised to -1; edge_indices filled for non-deleted edges.
+ * All entries initialized to -1; edge_indices filled for non-deleted edges.
  *
  * @param graph Graph to prepare.
  */
@@ -683,7 +688,7 @@ void prepare_graph_matrices(Graph *graph) {
         return;
     }
 
-    const int n    = graph->nb_vertex;
+    const int n = graph->nb_vertex;
     const int size = n * n;
 
     free(graph->edge_indices);
@@ -705,8 +710,8 @@ void prepare_graph_matrices(Graph *graph) {
 
     for (int i = 0; i < graph->nb_edges; i++) {
         if (graph->edges[i].deleted) continue;
-        const int u = (int)graph->edges[i].u;
-        const int v = (int)graph->edges[i].v;
+        const int u = graph->edges[i].u;
+        const int v = graph->edges[i].v;
         graph->edge_indices[u * n + v] = i;
         graph->edge_indices[v * n + u] = i;
     }
@@ -715,11 +720,9 @@ void prepare_graph_matrices(Graph *graph) {
 /**
  * @brief Compute all-pairs BFS shortest paths and predecessor tables.
  *
- * Runs one BFS per non-deleted source vertex.  Then reconstructs the
- * predecessor[u*n+v] entry for every reachable pair (u, v) by walking
- * backward along the distance array.  When several predecessors yield the
- * same distance, the one with the smallest vertex label is chosen
- * (deterministic tie-breaking across permutations).
+ * Runs one BFS per non-deleted source vertex. Then reconstructs the predecessor[u*n+v] entry for
+ * every reachable pair (u, v) by walking backward along the distance array. When several
+ * predecessors yield the same distance, the one with the smallest vertex label is chosen.
  *
  * @param g Graph whose matrices (allocated by prepare_graph_matrices) are filled.
  */
@@ -727,6 +730,7 @@ void compute_all_shortest_paths(const Graph *g) {
     int *queue = malloc(g->nb_vertex * sizeof(int));
     if (!queue) { perror("compute_all_shortest_paths: queue"); exit(1); }
 
+    /* BFS from each vertex */
     for (int s = 0; s < g->nb_vertex; s++) {
         if (g->vertices[s].deleted) continue;
 
@@ -749,6 +753,7 @@ void compute_all_shortest_paths(const Graph *g) {
     }
     free(queue);
 
+    /* Predecessors finding in order to compute shortest paths */
     for (int u = 0; u < g->nb_vertex; u++) {
         if (g->vertices[u].deleted) continue;
         for (int v = 0; v < g->nb_vertex; v++) {
@@ -785,21 +790,22 @@ void compute_all_shortest_paths(const Graph *g) {
 /**
  * @brief Build the shortest path from vertex u to vertex v as a Path object.
  *
- * Follows the predecessor chain stored in g->predecessors.  The returned Path
+ * Follows the predecessor chain stored in g->predecessors. The returned Path
  * owns its edges_ids, vertices_ids, and edges_labels arrays; the caller must
  * free them.
  *
- * @param g  Graph with precomputed shortest paths.
- * @param u  Source vertex.
- * @param v  Destination vertex.
- * @return   A Path from u to v.  Exits on error.
+ * @param g Graph with precomputed shortest paths.
+ * @param u Source vertex.
+ * @param v Destination vertex.
+ * @return A Path from u to v.
  */
 Path create_path(const Graph *g, const int u, const int v) {
     if (!g->predecessors || !g->edges) {
         perror("create_path: shortest paths not computed"); exit(1);
     }
 
-    Path p = {0};
+    Path p;
+    p.length = 0;
     p.edges_ids = calloc(g->nb_edges, sizeof(uint32_t));
     if (!p.edges_ids) { perror("create_path: edges_ids"); exit(1); }
 
@@ -817,6 +823,7 @@ Path create_path(const Graph *g, const int u, const int v) {
     p.vertices_ids[u] = 1;
     p.vertices_ids[v] = 1;
 
+    /* Path computation */
     int current = v;
     while (current != u) {
         const int pred = g->predecessors[u * g->nb_vertex + current];
@@ -842,8 +849,14 @@ Path create_path(const Graph *g, const int u, const int v) {
     return p;
 }
 
+/**
+ * @brief Compute the faces of the planar graph and identify the outer face.
+ *
+ * @param g Graph to analyze. Must have its neighbor lists sorted in CCW order.
+ */
+
 void find_faces(Graph *g) {
-    // 1. Nettoyage de la mémoire si des faces existent déjà
+
     if (g->faces) {
         for (int i = 0; i < g->nb_faces; i++) {
             free(g->faces[i].edges_ids);
@@ -852,51 +865,53 @@ void find_faces(Graph *g) {
         }
     }
 
-    // 2. Réinitialisation des propriétés des arêtes
     for (int e = 0; e < g->nb_edges; e++) {
         g->edges[e].face_id[0] = -1;
         g->edges[e].face_id[1] = -1;
-        g->edges[e].is_outer   = 0;
+        g->edges[e].is_outer = 0;
     }
 
     const int n = g->nb_vertex;
     const int m = g->nb_edges;
     if (!g->edge_indices) prepare_graph_matrices(g);
 
-    // Tableau pour marquer les demi-arêtes (u -> p) visitées
+    /* 'visited' tracks which directed half-edges (u->p) are processed */
     int *visited = calloc(n * n, sizeof(int));
     if (!visited) { perror("find_faces: visited"); exit(1); }
 
     g->nb_faces = 0;
     g->outer_face = -1;
-    double max_area = -1e18; // On cherche l'aire positive maximale pour la face externe
+    double max_area = -1e18; // Track the maximum signed area to find the outer face
 
+    /* Main Loop: iterate through every vertex and its neighbors */
     for (int v = 0; v < n; v++) {
         if (g->vertices[v].deleted) continue;
 
         for (int i = 0; i < g->neighbors[v].count; i++) {
-            const int nb = g->neighbors[v].neighbors[i];
-            if (visited[v * n + nb]) continue;
+            const int neigh = g->neighbors[v].neighbors[i];
+
+            /* If this directed edge (v -> neigh) hasn't been part of a face yet */
+            if (visited[v * n + neigh]) continue;
 
             Path *face = &g->faces[g->nb_faces];
-            face->edges_ids    = calloc(m, sizeof(uint32_t));
+            face->edges_ids = calloc(m, sizeof(uint32_t));
             face->vertices_ids = calloc(n, sizeof(uint32_t));
             face->edges_labels = calloc(m, sizeof(uint32_t));
-            face->length       = 0;
+            face->length = 0;
 
             double area = 0.0;
-            int u = v, p = nb;
+            int u = v, p = neigh;
 
-            // Parcours du cycle de la face
+            /* walk around the face by following the "right-hand rule" */
             while (!visited[u * n + p]) {
                 visited[u * n + p] = 1;
                 face->length++;
 
-                // Calcul de l'aire signée (Shoelace formula)
-                // area = sum (x_u * y_p - x_p * y_u)
-                area += (double)g->vertices[u].x * g->vertices[p].y;
-                area -= (double)g->vertices[p].x * g->vertices[u].y;
+                /* Signed Area Calculation (Shoelace Formula), accumulates: (x_u * y_p - x_p * y_u)*/
+                area += g->vertices[u].x * g->vertices[p].y;
+                area -= g->vertices[p].x * g->vertices[u].y;
 
+                /* Assign the face ID to the current edge */
                 const int eid = g->edge_indices[u * n + p];
                 if (eid >= 0) {
                     face->edges_ids[eid] = 1;
@@ -908,22 +923,22 @@ void find_faces(Graph *g) {
                 }
                 face->vertices_ids[u] = 1;
 
-                // Sélection du prochain sommet en tournant à droite
-                // On cherche l'indice de u dans la liste de p, puis on prend l'élément précédent
+                /*Select the next vertex by turning "right" by looking for the current vertex 'u'
+                in the neighbor list of destination 'p' */
                 const Neighbor_list *nl = &g->neighbors[p];
                 int idx = -1;
                 for (int j = 0; j < nl->count; j++) {
                     if (nl->neighbors[j] == u) { idx = j; break; }
                 }
 
-                // Le virage à droite (idx - 1) assure que les faces internes sont CW
-                // et que la bordure externe est CCW.
-                const int w = nl->neighbors[(idx - 1 + nl->count) % nl->count];
-                u = p; p = w;
+                /* Pick the next neighbor in the CCW sorted list (idx + 1). This corresponds to a
+                 * "right turn" in the embedding */
+                const int w = nl->neighbors[(idx + 1 + nl->count) % nl->count];
+                u = p; p = w; // Move to the next edge (p -> w)
             }
 
-            // Identification de la face externe
-            // Dans ce système de virage à droite, seule l'aire de la face externe est positive
+            /* Outer Face Identification: In this specific traversal, the face with the largest
+            (most positive) signed area is the infinite (outer) face */
             if (area > max_area) {
                 max_area = area;
                 g->outer_face = g->nb_faces;
@@ -939,11 +954,8 @@ void find_faces(Graph *g) {
 /**
  * @brief Append a cycle to the graph's Horton cycle list.
  *
- * Doubles the horton_cycles capacity when the array is full.  Ownership of
- * the cycle's inner arrays is transferred to the graph.
- *
- * @param g  Graph to which the cycle is appended.
- * @param c  Cycle to add.
+ * @param g Graph to which the cycle is appended.
+ * @param c Cycle to add.
  */
 void add_horton_cycle(Graph *g, const Path c) {
     if (g->nb_horton_cycles == g->capacity_horton_cycles) {
@@ -958,11 +970,6 @@ void add_horton_cycle(Graph *g, const Path c) {
 
 /**
  * @brief Generate all candidate cycles for Horton's algorithm.
- *
- * For each non-deleted root vertex r and each non-deleted edge (x, y) not
- * incident to r, computes the two shortest paths r→x and r→y.  If the paths
- * share only the root r as a common vertex, their symmetric difference plus
- * edge (x, y) forms a valid Horton cycle, which is added to g->horton_cycles.
  *
  * @param g Graph with precomputed shortest paths.
  */
@@ -1023,10 +1030,10 @@ void find_horton_cycles(Graph *g) {
                 el[g->edges[e].label] = 1;
 
                 add_horton_cycle(g, (Path){
-                    .edges_ids    = ec,
+                    .edges_ids = ec,
                     .vertices_ids = vc,
                     .edges_labels = el,
-                    .length       = pv_x.length + pv_y.length + 1
+                    .length = pv_x.length + pv_y.length + 1
                 });
             }
 
@@ -1187,75 +1194,34 @@ int mb_is_faces(Graph *g, const Minimal_basis *mb) {
 
     if (!g->faces || g->nb_faces == 0) find_faces(g);
 
-    Path *s1 = malloc(g->basis_dimension * sizeof(Path));
-    Path *s2 = malloc(g->nb_faces * sizeof(Path));
+    int D = g->basis_dimension;
 
-    if (!s1 || !s2) {
-        free(s1); free(s2);
-        perror("mb_is_faces: allocation failure");
-        exit(1);
-    }
+    if (g->nb_faces != D + 1) return 0;
 
-    for (int i = 0; i < g->basis_dimension; i++) {
-        s1[i].length = mb->cycles[i].length;
-        s1[i].edges_ids = malloc(g->nb_edges * sizeof(uint32_t));
-        if (!s1[i].edges_ids) { perror("malloc s1 edges"); exit(1); }
-        memcpy(s1[i].edges_ids, mb->cycles[i].edges_ids, g->nb_edges * sizeof(uint32_t));
-    }
-
-    for (int i = 0; i < g->nb_faces; i++) {
-        s2[i].length = g->faces[i].length;
-        s2[i].edges_ids = malloc(g->nb_edges * sizeof(uint32_t));
-        if (!s2[i].edges_ids) { perror("malloc s2 edges"); exit(1); }
-        memcpy(s2[i].edges_ids, g->faces[i].edges_ids, g->nb_edges * sizeof(uint32_t));
-    }
-
-    nb_edges_for_qsort = g->nb_edges;
-    qsort(s1, g->basis_dimension, sizeof(Path), compare_cycles);
-    qsort(s2, g->nb_faces, sizeof(Path), compare_cycles);
-
-    int result = 1;
-    int missed_idx = -1;
-    int i_s1 = 0;
-    int i_s2 = 0;
-
-    while (i_s1 < g->basis_dimension && i_s2 < g->nb_faces) {
-        if (are_same_cycles(&s1[i_s1], &s2[i_s2], g->nb_edges)) {
-            i_s1++;
-            i_s2++;
-        } else {
-            if (missed_idx != -1) {
-                result = 0;
-                break;
+    /* Try all combination of faces, including the outer one */
+    for (int skip = 0; skip < g->nb_faces; skip++) {
+        int match_count = 0;
+        for (int i = 0; i < D; i++) {
+            int found = 0;
+            for (int j = 0; j < g->nb_faces; j++) {
+                if (j == skip) continue;
+                if (are_same_cycles(&mb->cycles[i], &g->faces[j], g->nb_edges)) {
+                    found = 1;
+                    break;
+                }
             }
-            missed_idx = i_s2;
-            i_s2++;
+
+            if (found) match_count++;
+            else break;
+        }
+
+        if (match_count == D) {
+            if (skip == g->outer_face) return 1; // matches interior faces
+            return 2; // matches faces but includes the outer face
         }
     }
 
-    if (result && missed_idx == -1 && i_s2 < g->nb_faces) {
-        missed_idx = i_s2;
-    }
-
-    int final_return = 0;
-    if (result && i_s1 == g->basis_dimension) {
-        if (are_same_cycles(&s2[missed_idx], &g->faces[g->outer_face], g->nb_edges)) {
-            final_return = 1;
-        } else {
-            final_return = 2;
-        }
-    }
-
-    for (int i = 0; i < g->nb_faces; i++) {
-        if (i < g->basis_dimension) {
-            free(s1[i].edges_ids);
-        }
-        free(s2[i].edges_ids);
-    }
-    free(s1);
-    free(s2);
-
-    return final_return;
+    return 0;
 }
 
 /**
@@ -1346,9 +1312,9 @@ void greedy_cycle_cover(Graph *g) {
                 free(g->minimals_basis[b].cycles);
             }
             free(g->minimals_basis);
-            g->minimals_basis   = NULL;
+            g->minimals_basis = NULL;
             g->nb_minimal_bases = 0;
-            g->face_basis       = -1;
+            g->face_basis = -1;
         } else if (already_exists_basis(g, mb)) {
             for (int k = 0; k < mcb_count; k++) {
                 free(mcb[k].edges_ids);
@@ -1362,20 +1328,40 @@ void greedy_cycle_cover(Graph *g) {
     g->basis_dimension = mcb_count;
 
     /*
-     * Check if this basis equals the set of interior faces.
-     * nb_faces includes the outer face, so the interior count is nb_faces - 1,
-     * which equals the cycle-space dimension D for a connected planar graph.
+     * Check if this basis matches the face decomposition.
+     *
+     * We pass &mb (the newly computed MCB) to mb_is_faces, which compares each
+     * cycle of the MCB against the graph's faces.
+     *
+     * BUG FIX: the previous code passed &face_mb (cycles = g->faces), which
+     * compared faces against faces — always trivially true.  The correct call
+     * compares the newly computed MCB against the faces.
+     *
+     * mb_is_faces() returns:
+     *   1  — MCB equals the D interior faces (skip == outer face)
+     *   2  — MCB equals outer face + D-1 interior faces (skip != outer face)
+     *   0  — no match
+     *
+     * Both face_basis and face_basis_outer are 1-based so that the JS comparison
+     *   faceBasis === bIdx + 1   (bIdx 0-based)
+     * works correctly.
      */
-    mb.is_faces = 0;
+    mb.is_faces       = 0;
+    mb.is_faces_outer = 0;
     if (g->faces && g->nb_faces == mcb_count + 1) {
-        const Minimal_basis face_mb = {.cycles = g->faces};
-        const int is_face = mb_is_faces(g, &face_mb);
-        if (is_face == 1) {
-            mb.is_faces = 1;
-            g->face_basis = g->nb_minimal_bases + 1; /* 1-based */
-        } else if (is_face == 2) {
+        const int result = mb_is_faces(g, &mb);
+        if (result == 1) {
+            mb.is_faces   = 1;
+            g->face_basis = g->nb_minimal_bases; /* 0-based, before increment */
+        } else if (result == 2) {
             mb.is_faces_outer = 1;
-            g->face_basis_outer = g->nb_minimal_bases + 1;
+            /* Append the 0-based index of this basis to the face_basis_outer array */
+            int *tmp = realloc(g->face_basis_outer,
+                               (g->nb_face_basis_outer + 1) * sizeof(int));
+            if (!tmp) { perror("greedy_cycle_cover: realloc face_basis_outer"); exit(1); }
+            g->face_basis_outer = tmp;
+            g->face_basis_outer[g->nb_face_basis_outer] = g->nb_minimal_bases; /* 0-based */
+            g->nb_face_basis_outer++;
         }
     }
 

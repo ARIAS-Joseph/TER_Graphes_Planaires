@@ -10,6 +10,15 @@ const GraphWasm = (() => {
         const D = M._wasm_basis_dimension();
         const faceBasis = M._wasm_face_basis();
 
+        /* Read the full array of outer-face-basis indices */
+        const nbFaceBasisOuter = typeof M._wasm_nb_face_basis_outer === 'function'
+            ? M._wasm_nb_face_basis_outer() : 0;
+        const faceBasisOuter = [];
+        if (typeof M._wasm_face_basis_outer_at === 'function') {
+            for (let i = 0; i < nbFaceBasisOuter; i++)
+                faceBasisOuter.push(M._wasm_face_basis_outer_at(i));
+        }
+
 
         const vertices  = [];
         const vertexMap = {};
@@ -63,7 +72,8 @@ const GraphWasm = (() => {
             edges,
             bases,
             vertexMap,
-            faceBasis
+            faceBasis,
+            faceBasisOuter        /* now an array of 1-based indices, e.g. [] or [2, 5] */
         };
     }
 
@@ -82,12 +92,20 @@ const GraphWasm = (() => {
 
         /**
          * Load a graph from a text string (save_graph format).
-         * Used by the file-open handler in visualizer2.js.
+         *
+         * For large files (many bases), ccall() with a 'string' argument fails
+         * because Emscripten copies the string via allocateUTF8OnStack(), which
+         * is limited to the WASM stack size (~64 KB).  A file with 1000 bases
+         * can be several MB, causing "index out of bounds".
+         *
+         * Fix: write the text directly to MEMFS with Module.FS.writeFile() and
+         * call wasm_load_from_file() with no arguments.
          *
          * @param {string} text
          */
         loadFromText(text) {
-            M.ccall('wasm_load_from_text', null, ['string'], [text]);
+            M.FS.writeFile('/tmp/wasm_graph.txt', text);
+            M._wasm_load_from_file();
         },
 
         /**

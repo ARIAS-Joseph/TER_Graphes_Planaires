@@ -177,36 +177,60 @@ void test_carre() {
     create_vertex(g, 1, 0);
     create_vertex(g, 1, 1);
     create_vertex(g, 0, 1);
+    create_vertex(g, 0.5, 0.5);
     create_edge(g, 0, 1);
     create_edge(g, 1, 2);
     create_edge(g, 2, 3);
     create_edge(g, 3, 0);
-    create_edge(g, 0, 2);
+    create_edge(g, 0, 4);
+    create_edge(g, 2, 4);
     find_faces(g);
-    horton(g);
-    printf("Cycles:");
-    for (int i = 0; i < 7; i++) {
-        for (int e = 0; e < g->nb_edges; e++) {
-
-            if (g->horton_cycles[i].edges_ids[e] == 1) {
-                printf("(%d %d)", g->edges[e].u, g->edges[e].v);
-            }
-        }
-        printf("\n");
-    }
     printf("Number of faces: %d\n", g->nb_faces);
     for (int i = 0; i < g->nb_faces; i++) {
         printf("Face %d: length = %d, edges = [", i + 1, g->faces[i].length);
         for (int e = 0; e < g->nb_edges; e++) {
             if (g->faces[i].edges_ids[e] == 1) {
-                printf("(%d %d)", g->edges[e].u, g->edges[e].v);
+                printf("%d ", e);
             }
         }
         printf("]\n");
     }
-    printf("basis:");
-    for (int e = 0; e < g->nb_edges; e++) {}
-    delete_graph(g);}
+    printf("outer_faces: %d\n", g->outer_face);
+    int* inv = calloc(g->nb_edges, sizeof(int));
+    multiple_horton(g, inv, 10);
+    printf("Cycles:");
+    for (int i = 0; i < 7; i++) {
+        for (int e = 0; e < g->nb_edges; e++) {
+            if (g->horton_cycles[i].edges_ids[e] == 1) {
+                printf("%d ", e);
+            }
+        }
+        printf("\n");
+    }
+
+    printf("cycle basis\n");
+    for (int b = 0; b < g->nb_minimal_bases; b++) {
+        printf("Minimal cycle basis %d:\n", b);
+        for (int i = 0; i < g->basis_dimension; i++) {
+            printf("  Cycle %d: length = %d, edges = [", i,
+                   g->minimals_basis[b].cycles[i].length);
+            for (int e = 0; e < g->nb_edges; e++) {
+                if (g->minimals_basis[b].cycles[i].edges_ids[e] == 1) {
+                    printf(" %d", e);
+                }
+            }
+            printf(" ]\n");
+        }
+    }
+    printf("face basis index: %d\n", g->face_basis);
+    printf("face basis outer indices: [");
+    for (int i=0; i < g->nb_face_basis_outer; i++) {
+        printf("%d ", g->face_basis_outer[i]);
+    }
+    printf("]\n");
+    delete_graph(g);
+    free(inv);
+}
 
 int main() {
     srand(time(NULL));

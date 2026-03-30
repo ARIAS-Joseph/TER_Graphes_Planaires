@@ -324,8 +324,10 @@ function buildSidebar() {
 
         const title = document.createElement('div');
         title.className = 'basis-title';
-        var isFace = (d.faceBasis !== undefined && d.faceBasis !== -1 && d.faceBasis === bIdx + 1);
-        var faceBadge = isFace ? '<span class="face-badge">Face</span>' : '';
+        var isFace      = (d.faceBasis !== undefined && d.faceBasis >= 0 && d.faceBasis === bIdx);
+        var isFaceOuter = (Array.isArray(d.faceBasisOuter) && d.faceBasisOuter.includes(bIdx));
+        var faceBadge = isFace      ? '<span class="face-badge" title="Base = toutes les faces intérieures">Faces</span>' : '';
+        faceBadge    += isFaceOuter ? '<span class="face-badge-outer" title="Base = face extérieure + D−1 faces intérieures">Faces ext.</span>' : '';
         title.innerHTML = '<span>Basis ' + (bIdx+1) + '</span>' + faceBadge + '<span class="basis-badge">' + d.D + ' cycles</span>';
         const cyclesList = document.createElement('div');
         cyclesList.className = 'cycles-list';

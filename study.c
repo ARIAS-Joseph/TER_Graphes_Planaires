@@ -7,7 +7,7 @@
 #include "graph.h"
 #include "planar_graph_creator.h"
 
-void process_and_save(char* type, Graph *g, int id) {
+void process_and_save(char* type, Graph *g, const int id) {
     FILE *csv = fopen("result.csv", "a");
     if (!csv) {
         printf("Error opening csv file\n");
@@ -37,7 +37,7 @@ void process_and_save(char* type, Graph *g, int id) {
     snprintf(buffer, 100, "./all_graphs/%s_%dbasis/%s_%dvertices_%dedges_%dbasis_id%d.txt", type, g->nb_minimal_bases, type, g->nb_vertex, g->nb_edges, g->nb_minimal_bases, id);
     save_graph(g, buffer);
 
-    fprintf(csv,"%s, %d, %d, %d, %d, %d\n", type, g->nb_vertex, g->nb_edges, g->nb_minimal_bases, g->face_basis != -1, g->face_basis_outer != -1);
+    fprintf(csv,"%s, %d, %d, %d, %d, %d\n", type, g->nb_vertex, g->nb_edges, g->nb_minimal_bases, g->face_basis != -1, g->nb_face_basis_outer);
     fclose(csv);
     delete_graph(g);
     free(inv);
@@ -46,7 +46,7 @@ void process_and_save(char* type, Graph *g, int id) {
 void study_graph(const int nb_vertex, const int nb_test) {
 
     for (int i = 0; i < nb_test; i++) {
-        int nb_edges = (rand() % ((3*nb_vertex - 6) - nb_vertex + 1)) + nb_vertex;
+        int nb_edges = (rand() % ((3*nb_vertex - 6) - nb_vertex + 1)) + nb_vertex+1;
         Graph* planar = create_planar_graph(nb_vertex, nb_edges);
         process_and_save("PLANAR", planar, i);
     }
