@@ -137,6 +137,8 @@ typedef struct {
 
 Graph *create_graph();
 
+int mb_is_faces(Graph *g, const Minimal_basis *mb);
+
 void create_vertex(Graph *g, double x, double y);
 
 void create_edge(Graph *g, int v1_id, int v2_id);
@@ -156,6 +158,8 @@ void find_faces(Graph *g);
 void split_edges(Graph *g, const int *edge_ids, int number_edge_to_split, int number_vertex_to_add);
 
 void split_edge(Graph *g, int edge_id, int number_vertex_to_add);
+
+void compact_graph(Graph *g);
 
 void delete_vertex(Graph *g, int v_id);
 

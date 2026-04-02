@@ -166,19 +166,12 @@ void wasm_add_vertex(double x, double y, int n_horton) {
 }
 
 /**
- * Delete vertex vid (and all its incident edges), then re-run Horton.
+ * Delete vertex vid (and all its incident edges), compact, then re-run Horton.
  */
 EMSCRIPTEN_KEEPALIVE
 void wasm_delete_vertex(int vid, int n_horton) {
     if (!g || vid < 0 || vid >= g->nb_vertex) return;
-    /* Remove every edge incident to vid first */
-    for (int e = 0; e < g->nb_edges; e++) {
-        if (g->edges[e].deleted) continue;
-        if (g->edges[e].u == vid || g->edges[e].v == vid)
-            delete_edge(g, e);
-    }
-    g->vertices[vid].deleted = 1;
-    reset_bases();
+    delete_vertex(g, vid);   /* handles incident edges + compact_graph */
     run_horton(n_horton);
 }
 
@@ -205,8 +198,7 @@ void wasm_add_edge(int u, int v, int n_horton) {
 EMSCRIPTEN_KEEPALIVE
 void wasm_delete_edge(int eid, int n_horton) {
     if (!g || eid < 0 || eid >= g->nb_edges) return;
-    delete_edge(g, eid);
-    reset_bases();
+    delete_edge(g, eid);   /* includes compact_graph */
     run_horton(n_horton);
 }
 
@@ -217,25 +209,25 @@ void wasm_delete_edge(int eid, int n_horton) {
 EMSCRIPTEN_KEEPALIVE
 void wasm_move_vertex(int vid, double x, double y) {
     if (!g || vid < 0 || vid >= g->nb_vertex) return;
-    /*
-     * move_vertex recalcule les angles, trie les voisins et appelle find_faces.
-     * Après le déplacement, outer_face et is_outer sont mis à jour.
-     * On re-parcourt les bases existantes pour trouver laquelle (si elle existe)
-     * correspond aux faces intérieures → mise à jour du badge Face dans l'UI.
-     *
-     * On s'appuie sur le flag is_faces stocké dans chaque Minimal_basis.
-     */
-    move_vertex(g, vid, x, y);
 
+    move_vertex(g, vid, x, y);   /* updates angles, neighbour sort, find_faces */
+
+    /* Reset face-basis tracking */
     g->face_basis = -1;
     free(g->face_basis_outer);
     g->face_basis_outer    = NULL;
     g->nb_face_basis_outer = 0;
 
+    /* Recompute is_faces / is_faces_outer for every stored basis against the
+     * new face decomposition — the old flags are stale after a move. */
     for (int b = 0; b < g->nb_minimal_bases; b++) {
-        if (g->minimals_basis[b].is_faces)
+        const int result = mb_is_faces(g, &g->minimals_basis[b]);
+        g->minimals_basis[b].is_faces       = (result == 1) ? 1 : 0;
+        g->minimals_basis[b].is_faces_outer = (result == 2) ? 1 : 0;
+
+        if (result == 1) {
             g->face_basis = b;
-        if (g->minimals_basis[b].is_faces_outer) {
+        } else if (result == 2) {
             int *tmp = realloc(g->face_basis_outer,
                                (g->nb_face_basis_outer + 1) * sizeof(int));
             if (tmp) {

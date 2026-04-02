@@ -73,7 +73,7 @@ const GraphWasm = (() => {
             bases,
             vertexMap,
             faceBasis,
-            faceBasisOuter        /* now an array of 1-based indices, e.g. [] or [2, 5] */
+            faceBasisOuter  /* now an array of 1-based indices, e.g. [] or [2, 5] */
         };
     }
 

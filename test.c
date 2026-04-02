@@ -174,16 +174,18 @@ void test_faces() {
 void test_carre() {
     Graph *g = create_graph();
     create_vertex(g, 0, 0);
-    create_vertex(g, 1, 0);
-    create_vertex(g, 1, 1);
-    create_vertex(g, 0, 1);
-    create_vertex(g, 0.5, 0.5);
+    create_vertex(g, -1, 0);
+    create_vertex(g, -2, 0);
+    create_vertex(g, -2, 1);
+    create_vertex(g, -1, 1);
     create_edge(g, 0, 1);
     create_edge(g, 1, 2);
     create_edge(g, 2, 3);
+    create_edge(g, 3, 4);
+    create_edge(g, 4,0);
     create_edge(g, 3, 0);
-    create_edge(g, 0, 4);
-    create_edge(g, 2, 4);
+
+
     find_faces(g);
     printf("Number of faces: %d\n", g->nb_faces);
     for (int i = 0; i < g->nb_faces; i++) {

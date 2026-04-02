@@ -40,7 +40,13 @@ async function callC(action, args) {
     try {
         await GraphWasm.call({ action, args });
         graphData = GraphWasm.readGraph();
-        renderAll();
+        if (action === 'move_vertex') {
+            /* Topology unchanged: just redraw without resetting zoom/pan. */
+            buildSidebar();
+            renderGraph();
+        } else {
+            renderAll();
+        }
         setStatus('OK', 'ok');
     } catch (err) {
         setStatus('Erreur : ' + err.message, 'err');

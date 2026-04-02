@@ -63,6 +63,7 @@ static void invalidate_bases(Graph *g) {
     g->outer_face = -1;
     g->face_basis = -1;
     g->nb_face_basis_outer = 0;
+    free(g->face_basis_outer);
     g->face_basis_outer = NULL;
 }
 
@@ -120,10 +121,11 @@ Graph *create_graph() {
         perror("create_graph: horton_cycles"); exit(1);
     }
 
+    graph->face_basis_outer = malloc(0);
+
     graph->face_basis = -1;
     graph->outer_face = -1;
     graph->nb_face_basis_outer = 0;
-    graph->face_basis_outer = NULL;
     graph->edge_indices = NULL;
     graph->predecessors = NULL;
     graph->distances = NULL;
@@ -507,15 +509,14 @@ void create_edge(Graph *g, const int v1_id, const int v2_id) {
 }
 
 /**
- * @brief Mark an edge as deleted and remove it from both neighbor lists.
+ * @brief Internal edge deletion — marks the slot deleted and updates neighbour
+ * lists, but does NOT compact the arrays.
  *
- * The edge slot is kept in the array (its index is preserved) but its deleted
- * flag is set to 1 so all algorithms skip it.
- *
- * @param g Graph to modify.
- * @param e_id Index of the edge to delete.
+ * Must be used instead of delete_edge() when several edges are removed in a
+ * single pass (e.g. inside delete_vertex) so that IDs remain stable throughout
+ * the loop.  The caller is responsible for calling compact_graph() afterwards.
  */
-void delete_edge(Graph *g, const int e_id) {
+static void delete_edge_impl(Graph *g, const int e_id) {
     invalidate_bases(g);
 
     g->edges[e_id].deleted = 1;
@@ -523,16 +524,16 @@ void delete_edge(Graph *g, const int e_id) {
     const int u = g->edges[e_id].u;
     const int v = g->edges[e_id].v;
 
-    /* Remove v from u's neighbor list */
+    /* Remove v from u's neighbour list */
     for (int i = 0; i < g->neighbors[u].count; i++) {
         if (g->neighbors[u].neighbors[i] == v) {
             const int last = --g->neighbors[u].count;
             g->neighbors[u].neighbors[i] = g->neighbors[u].neighbors[last];
-            g->neighbors[u].angles[i] = g->neighbors[u].angles[last];
+            g->neighbors[u].angles[i]    = g->neighbors[u].angles[last];
             break;
         }
     }
-    /* Remove u from v's neighbor list */
+    /* Remove u from v's neighbour list */
     for (int i = 0; i < g->neighbors[v].count; i++) {
         if (g->neighbors[v].neighbors[i] == u) {
             const int last = --g->neighbors[v].count;
@@ -544,20 +545,143 @@ void delete_edge(Graph *g, const int e_id) {
 }
 
 /**
- * @brief Mark a vertex as deleted together with all its incident edges.
+ * @brief Compact the graph arrays by removing all deleted vertex/edge slots.
  *
- * invalidate_bases() is called implicitly through each delete_edge() call.
+ * After one or more deletions, vertices[] and edges[] may contain holes
+ * (deleted == 1).  This function:
+ *  1. Builds remapping tables  old_id → new_sequential_id  (−1 if deleted).
+ *  2. Shifts non-deleted vertices and edges to fill the holes; updates vertex
+ *     id/label and edge id/u/v accordingly.
+ *  3. Frees all neighbour lists and rebuilds them from the compacted edge set
+ *     using the same insertion-sort-by-angle logic as create_edge().
+ *  4. Frees the stale BFS matrices (reallocated on the next Horton run).
  *
- * @param g Graph to modify.
+ * Does nothing if no vertex or edge has been deleted since the last compaction.
+ * invalidate_bases() must have been called before compact_graph() so that bases
+ * and faces (which embed old IDs) are already freed.
+ *
+ * @param g Graph to compact.
+ */
+void compact_graph(Graph *g) {
+    if (!g) return;
+
+    /* ── 1. Build remapping tables ─────────────────────────────────────── */
+    int *vmap = malloc(g->nb_vertex * sizeof(int));
+    int *emap = malloc(g->nb_edges  * sizeof(int));
+    if (!vmap || !emap) { free(vmap); free(emap); perror("compact_graph: maps"); exit(1); }
+
+    int new_nv = 0;
+    for (int i = 0; i < g->nb_vertex; i++)
+        vmap[i] = g->vertices[i].deleted ? -1 : new_nv++;
+
+    int new_ne = 0;
+    for (int i = 0; i < g->nb_edges; i++)
+        emap[i] = g->edges[i].deleted ? -1 : new_ne++;
+
+    /* Early-exit: nothing to compact */
+    if (new_nv == g->nb_vertex && new_ne == g->nb_edges) {
+        free(vmap); free(emap);
+        return;
+    }
+
+    /* ── 2. Compact vertices in-place, update id and label ─────────────── */
+    for (int i = 0; i < g->nb_vertex; i++) {
+        if (vmap[i] < 0) continue;
+        g->vertices[vmap[i]]       = g->vertices[i];
+        g->vertices[vmap[i]].id    = vmap[i];
+        g->vertices[vmap[i]].label = vmap[i];
+    }
+    g->nb_vertex = new_nv;
+
+    /* ── 3. Compact edges in-place, remap endpoints and id ─────────────── */
+    for (int i = 0; i < g->nb_edges; i++) {
+        if (emap[i] < 0) continue;
+        g->edges[emap[i]]    = g->edges[i];
+        g->edges[emap[i]].u  = vmap[g->edges[i].u];
+        g->edges[emap[i]].v  = vmap[g->edges[i].v];
+        g->edges[emap[i]].id = emap[i];
+    }
+    g->nb_edges = new_ne;
+
+    /* ── 4. Rebuild neighbour lists from compacted edges ───────────────── */
+    /* Free all existing lists across the full allocated capacity */
+    for (int i = 0; i < g->capacity_vertices; i++) {
+        free(g->neighbors[i].neighbors);
+        free(g->neighbors[i].angles);
+        g->neighbors[i].neighbors = NULL;
+        g->neighbors[i].angles    = NULL;
+        g->neighbors[i].count     = 0;
+        g->neighbors[i].capacity  = 0;
+    }
+
+    /* Re-insert each edge using insertion sort by angle (same as create_edge) */
+    for (int e = 0; e < new_ne; e++) {
+        const int ep[2] = {g->edges[e].u, g->edges[e].v};
+        for (int s = 0; s < 2; s++) {
+            const int src = ep[s], dst = ep[s ^ 1];
+            const double angle = atan2l(
+                g->vertices[dst].y - g->vertices[src].y,
+                g->vertices[dst].x - g->vertices[src].x);
+
+            Neighbor_list *nl = &g->neighbors[src];
+            if (nl->count == nl->capacity) {
+                nl->capacity = nl->capacity == 0 ? 4 : nl->capacity * 2;
+                int    *tn = realloc(nl->neighbors, nl->capacity * sizeof(int));
+                double *ta = realloc(nl->angles,    nl->capacity * sizeof(double));
+                if (!tn || !ta) { perror("compact_graph: neighbor realloc"); exit(1); }
+                nl->neighbors = tn;
+                nl->angles    = ta;
+            }
+            /* Insertion sort to maintain ascending angle order */
+            int pos = nl->count;
+            while (pos > 0 && nl->angles[pos - 1] > angle) {
+                nl->neighbors[pos] = nl->neighbors[pos - 1];
+                nl->angles[pos]    = nl->angles[pos - 1];
+                pos--;
+            }
+            nl->neighbors[pos] = dst;
+            nl->angles[pos]    = angle;
+            nl->count++;
+        }
+    }
+
+    /* ── 5. Free stale BFS matrices (reallocated by prepare_graph_matrices) */
+    free(g->edge_indices); g->edge_indices = NULL;
+    free(g->predecessors); g->predecessors = NULL;
+    free(g->distances);    g->distances    = NULL;
+
+    free(vmap);
+    free(emap);
+}
+
+/**
+ * @brief Delete an edge and compact the graph arrays.
+ *
+ * @param g   Graph to modify.
+ * @param e_id Index of the edge to delete.
+ */
+void delete_edge(Graph *g, const int e_id) {
+    delete_edge_impl(g, e_id);
+    compact_graph(g);
+}
+
+/**
+ * @brief Delete a vertex and all its incident edges, then compact the graph.
+ *
+ * Uses delete_edge_impl() for each incident edge so that IDs remain stable
+ * during the loop — compact_graph() is called once at the end.
+ *
+ * @param g    Graph to modify.
  * @param v_id ID of the vertex to delete.
  */
 void delete_vertex(Graph *g, const int v_id) {
     for (int e = 0; e < g->nb_edges; e++) {
         if (g->edges[e].deleted) continue;
         if (g->edges[e].u == v_id || g->edges[e].v == v_id)
-            delete_edge(g, e);
+            delete_edge_impl(g, e);
     }
     g->vertices[v_id].deleted = 1;
+    compact_graph(g);
 }
 
 /**
@@ -849,6 +973,53 @@ Path create_path(const Graph *g, const int u, const int v) {
     return p;
 }
 
+static void find_outer_face(Graph *g) {
+
+    int leftmost = -1;
+    for (int i = 0; i < g->nb_vertex; i++) {
+        if (g->vertices[i].deleted || g->neighbors[i].count == 0) continue;
+        if (leftmost == -1 || g->vertices[i].x < g->vertices[leftmost].x)
+            leftmost = i;
+    }
+
+    if (leftmost == -1) { g->outer_face = 0; return; }
+
+    const int neighbor = g->neighbors[leftmost].neighbors[0];
+    int u = leftmost, v = neighbor, nb_outer_edge = 0;
+    do {
+        const int eid = g->edge_indices[u * g->nb_vertex + v];
+        if (eid >= 0) g->edges[eid].is_outer = 1;
+        nb_outer_edge++;
+        const Neighbor_list *nl = &g->neighbors[v];
+        int idx = -1;
+        for (int j = 0; j < nl->count; j++) {
+            if (nl->neighbors[j] == u) { idx = j; break; }
+        }
+
+        if (idx < 0) break;
+        const int w = nl->neighbors[(idx + 1) % nl->count];
+        u = v; v = w;
+
+    } while (u != leftmost || v != neighbor);
+
+    for (int f=0; f < g->nb_faces; f++) {
+        const Path face = g->faces[f];
+        if (face.length == nb_outer_edge) {
+            int match = 1;
+            for (int e = 0; e < g->nb_edges; e++) {
+                if (face.edges_ids[e] != 0 && !g->edges[e].is_outer) {
+                    match = 0;
+                    break;
+                }
+            }
+            if (match) {
+                g->outer_face = f;
+                return;
+            }
+        }
+    }
+}
+
 /**
  * @brief Compute the faces of the planar graph and identify the outer face.
  *
@@ -862,8 +1033,13 @@ void find_faces(Graph *g) {
             free(g->faces[i].edges_ids);
             free(g->faces[i].edges_labels);
             free(g->faces[i].vertices_ids);
+            g->faces[i].edges_ids    = NULL;
+            g->faces[i].edges_labels = NULL;
+            g->faces[i].vertices_ids = NULL;
         }
     }
+    g->nb_faces  = 0;
+    g->outer_face = -1;
 
     for (int e = 0; e < g->nb_edges; e++) {
         g->edges[e].face_id[0] = -1;
@@ -878,10 +1054,6 @@ void find_faces(Graph *g) {
     /* 'visited' tracks which directed half-edges (u->p) are processed */
     int *visited = calloc(n * n, sizeof(int));
     if (!visited) { perror("find_faces: visited"); exit(1); }
-
-    g->nb_faces = 0;
-    g->outer_face = -1;
-    double max_area = -1e18; // Track the maximum signed area to find the outer face
 
     /* Main Loop: iterate through every vertex and its neighbors */
     for (int v = 0; v < n; v++) {
@@ -907,15 +1079,15 @@ void find_faces(Graph *g) {
                 visited[u * n + p] = 1;
                 face->length++;
 
-                /* Signed Area Calculation (Shoelace Formula), accumulates: (x_u * y_p - x_p * y_u)*/
-                area += g->vertices[u].x * g->vertices[p].y;
-                area -= g->vertices[p].x * g->vertices[u].y;
-
                 /* Assign the face ID to the current edge */
                 const int eid = g->edge_indices[u * n + p];
                 if (eid >= 0) {
                     face->edges_ids[eid] = 1;
-                    face->edges_labels[g->edges[eid].label] = 1;
+                    /* Guard: label may be stale (larger than current nb_edges)
+                     * if find_faces() is called outside a full Horton run. */
+                    const int lbl = g->edges[eid].label;
+                    if (lbl >= 0 && lbl < m)
+                        face->edges_labels[lbl] = 1;
                     if (g->edges[eid].face_id[0] == -1)
                         g->edges[eid].face_id[0] = g->nb_faces;
                     else
@@ -939,15 +1111,12 @@ void find_faces(Graph *g) {
 
             /* Outer Face Identification: In this specific traversal, the face with the largest
             (most positive) signed area is the infinite (outer) face */
-            if (area > max_area) {
-                max_area = area;
-                g->outer_face = g->nb_faces;
-            }
 
             g->nb_faces++;
         }
     }
 
+    find_outer_face(g);
     free(visited);
 }
 
@@ -1194,6 +1363,11 @@ int mb_is_faces(Graph *g, const Minimal_basis *mb) {
 
     if (!g->faces || g->nb_faces == 0) find_faces(g);
 
+    /* If find_outer_face() failed (e.g. disconnected graph), outer_face is -1.
+     * In that case we cannot distinguish "interior faces only" from "outer face
+     * included", so bail out to avoid incorrectly tagging bases. */
+    if (g->outer_face < 0) return 0;
+
     int D = g->basis_dimension;
 
     if (g->nb_faces != D + 1) return 0;
@@ -1248,7 +1422,7 @@ void greedy_cycle_cover(Graph *g) {
     }
 
     uint32_t **basis = calloc(g->nb_edges, sizeof(uint32_t *));
-    Path      *mcb   = calloc(g->nb_horton_cycles, sizeof(Path));
+    Path *mcb   = calloc(g->nb_horton_cycles, sizeof(Path));
     if (!basis || !mcb) { perror("greedy_cycle_cover: alloc"); exit(1); }
 
     int mcb_count = 0;
@@ -1315,6 +1489,9 @@ void greedy_cycle_cover(Graph *g) {
             g->minimals_basis = NULL;
             g->nb_minimal_bases = 0;
             g->face_basis = -1;
+            g->nb_face_basis_outer = 0;
+            free(g->face_basis_outer);
+            g->face_basis_outer = NULL;
         } else if (already_exists_basis(g, mb)) {
             for (int k = 0; k < mcb_count; k++) {
                 free(mcb[k].edges_ids);

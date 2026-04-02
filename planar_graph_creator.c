@@ -228,7 +228,7 @@ Graph* create_outer_planar_graph(const int nb_vertex, int nb_edges_target) {
  * (excluding the edges of the initial tree).
  * @return A pointer to the created planar graph structure.
  */
-Graph* create_planar_graph(const int nb_vertex, int nb_edges_target) {
+Graph* create_planar_graph(const int nb_vertex, const int nb_edges_target) {
 
     Graph *g = create_graph();
 
@@ -292,7 +292,7 @@ Graph* create_planar_graph(const int nb_vertex, int nb_edges_target) {
     for (int i = 0; i < g->nb_vertex; i++) {
         if (g->neighbors[i].count == 1) {
             delete_vertex(g, i);
-            i = 0;
+            i = -1;  /* compact_graph renumbers all IDs → restart from 0 */
         }
     }
 

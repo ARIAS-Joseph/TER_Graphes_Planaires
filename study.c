@@ -17,6 +17,7 @@ void process_and_save(char* type, Graph *g, const int id) {
     int *inv = calloc(g->nb_edges, sizeof(int));
     multiple_horton(g, inv, 1000);
 
+    /* g->nb_vertex and g->nb_edges are always accurate after compact_graph(). */
     const int dir_all = _mkdir("all_graphs");
     if (dir_all == -1 && errno != EEXIST) {
         printf("Error creating directory all_graphs\n");
@@ -34,10 +35,13 @@ void process_and_save(char* type, Graph *g, const int id) {
     }
 
     char buffer[100];
-    snprintf(buffer, 100, "./all_graphs/%s_%dbasis/%s_%dvertices_%dedges_%dbasis_id%d.txt", type, g->nb_minimal_bases, type, g->nb_vertex, g->nb_edges, g->nb_minimal_bases, id);
+    snprintf(buffer, 100, "./all_graphs/%s_%dbasis/%s_%dvertices_%dedges_%dbasis_%dfacebasis_%douterface_basis_id%d.txt",
+             type, g->nb_minimal_bases, type, g->nb_vertex, g->nb_edges,
+             g->nb_minimal_bases, g->face_basis != -1, g->nb_face_basis_outer, id);
     save_graph(g, buffer);
 
-    fprintf(csv,"%s, %d, %d, %d, %d, %d\n", type, g->nb_vertex, g->nb_edges, g->nb_minimal_bases, g->face_basis != -1, g->nb_face_basis_outer);
+    fprintf(csv,"%s, %d, %d, %d, %d, %d\n",
+            type, g->nb_vertex, g->nb_edges, g->nb_minimal_bases, g->face_basis != -1, g->nb_face_basis_outer);
     fclose(csv);
     delete_graph(g);
     free(inv);
