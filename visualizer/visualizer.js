@@ -1,9 +1,5 @@
-// ── PALETTE FOR CYCLES ──────────────────────────────────────────────────────
-const PALETTE = [
-    '#4f7cff', '#ff6b6b', '#51cf66', '#ffd43b',
-    '#cc5de8', '#ff922b', '#22d3ee', '#f06595',
-    '#74c0fc', '#a9e34b', '#ff8787', '#63e6be'
-];
+const PALETTE = ['#4f7cff', '#ff6b6b', '#51cf66', '#ffd43b', '#cc5de8', '#ff922b', '#22d3ee', '#f06595',
+    '#74c0fc', '#a9e34b', '#ff8787', '#63e6be'];
 
 let graphData= null;
 let activeBasis= null;
@@ -36,12 +32,11 @@ async function callC(action, args) {
     if (!args) args = [];
     if (action !== 'generate_graph' && action !== 'run_horton' && action !== 'move_vertex' && !graphData) return;
     setLoading(true);
-    setStatus('Execution : ' + action + '...');
+    setStatus('Execution : ' + action);
     try {
         await GraphWasm.call({ action, args });
         graphData = GraphWasm.readGraph();
         if (action === 'move_vertex') {
-            /* Topology unchanged: just redraw without resetting zoom/pan. */
             buildSidebar();
             renderGraph();
         } else {
@@ -59,16 +54,9 @@ async function callC(action, args) {
 function runHorton() {
     callC('run_horton', [nbIterations]);
 }
-
-function autoRunHorton() {
-    if (document.getElementById('autoHorton').checked) {
-        runHorton();
-    }
-}
-
-document.getElementById('fileInput').addEventListener('change', function(e) {
-    const f = e.target.files[0];
-    if (!f) return;
+document.getElementById('fileInput').addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = function(ev) {
         try {
@@ -85,49 +73,14 @@ document.getElementById('fileInput').addEventListener('change', function(e) {
             setLoading(false);
         }
     };
-    reader.readAsText(f);
+    reader.readAsText(file);
 });
-
-function parseGraphFile(text) {
-    const lines = text.trim().split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
-    let idx = 0;
-    const header = lines[idx++].split(/\s+/).map(Number);
-    const V = header[0], E = header[1], M = header[2], D = header[3];
-    const faceBasis = header[4] !== undefined ? header[4] : -1;
-
-    const vertices = [];
-    for (let i = 0; i < V; i++) {
-        const p = lines[idx++].split(/\s+/).map(Number);
-        vertices.push({ id: p[0], x: p[1], y: p[2] });
-    }
-
-    const edges = [];
-    for (let i = 0; i < E; i++) {
-        const p = lines[idx++].split(/\s+/).map(Number);
-        edges.push({ id: p[0], u: p[1], v: p[2], label: p[3] !== undefined ? p[3] : p[0] });
-    }
-
-    const bases = [];
-    for (let b = 0; b < M; b++) {
-        const cycles = [];
-        for (let c = 0; c < D; c++) {
-            const ei = lines[idx++].split(/\s+/).map(Number).filter(function(n) { return !isNaN(n); });
-            cycles.push(ei);
-        }
-        bases.push(cycles);
-    }
-
-    const vertexMap = {};
-    vertices.forEach(v => { vertexMap[v.id] = v; });
-
-    return { V, E, M, D, vertices, edges, bases, vertexMap, faceBasis };
-}
-
 function buildGraphText() {
     const d = graphData;
     const lines = [];
     lines.push(d.vertices.length + ' ' + d.edges.length + ' 0 0 -1');
-    d.vertices.forEach(function(v) { lines.push(v.id + ' ' + v.x.toFixed(6) + ' ' + v.y.toFixed(6)); });
+    d.vertices.forEach(function(v) { lines.push(v.id + ' ' + v.x.toFixed(6) + ' '
+        + v.y.toFixed(6)); });
     d.edges.forEach(function(e) { lines.push(e.id + ' ' + e.u + ' ' + e.v); });
     return lines.join('\n') + '\n';
 }
@@ -157,7 +110,6 @@ async function saveGraph() {
     }
 }
 document.getElementById('saveBtn').addEventListener('click', saveGraph);
-
 
 document.getElementById('addVertexBtn').addEventListener('click', function() {
     if (!graphData) return;
@@ -191,18 +143,18 @@ function setEditMode(mode) {
 
 document.getElementById('deleteVertexBtn').addEventListener('click', function() {
     if (selectedVertex === null) return;
-    const vid = selectedVertex;
+    const vertexId = selectedVertex;
     selectedVertex = null;
     updateActionButtons();
-    callC('delete_vertex', [vid, nbIterations]);
+    callC('delete_vertex', [vertexId, nbIterations]);
 });
 
 document.getElementById('deleteEdgeBtn').addEventListener('click', function() {
     if (selectedEdge === null) return;
-    const eid = selectedEdge;
+    const  edgeId = selectedEdge;
     selectedEdge = null;
     updateActionButtons();
-    callC('delete_edge', [eid, nbIterations]);
+    callC('delete_edge', [ edgeId, nbIterations]);
 });
 
 
@@ -211,15 +163,15 @@ document.getElementById('splitEdgeBtn').addEventListener('click', function() {
     const list = document.getElementById('splitEdgeList');
     list.innerHTML = '';
     graphData.edges.forEach(function(e) {
-        const lbl = document.createElement('label');
-        lbl.className = 'edge-checkbox';
+        const label = document.createElement('label');
+        label.className = 'edge-checkbox';
         const chk = document.createElement('input');
         chk.type = 'checkbox';
         chk.value = e.id;
         if (e.id === selectedEdge) chk.checked = true;
-        lbl.appendChild(chk);
-        lbl.appendChild(document.createTextNode(' Arete ' + e.id + ' (' + e.u + ' -> ' + e.v + ')'));
-        list.appendChild(lbl);
+        label.appendChild(chk);
+        label.appendChild(document.createTextNode(' Arête ' + e.id + ' (' + e.u + ', ' + e.v + ')'));
+        list.appendChild(label);
     });
     document.getElementById('splitModal').classList.add('open');
 });
@@ -237,7 +189,6 @@ document.getElementById('splitConfirm').addEventListener('click', function() {
     callC('split_edges', [k, nbIterations].concat(edgeIds));
 });
 
-
 document.getElementById('runHortonBtn').addEventListener('click', runHorton);
 
 document.getElementById('hortonN').addEventListener('input', function() {
@@ -254,9 +205,9 @@ document.getElementById('generateCancel').addEventListener('click', function() {
     document.getElementById('generateModal').classList.remove('open');
 });
 document.getElementById('generateConfirm').addEventListener('click', function() {
-    var type = document.getElementById('genType').value;
-    var nbV  = parseInt(document.getElementById('genVertices').value);
-    var nbE  = parseInt(document.getElementById('genEdges').value);
+    const type = document.getElementById('genType').value;
+    const nbV = parseInt(document.getElementById('genVertices').value);
+    const nbE = parseInt(document.getElementById('genEdges').value);
     document.getElementById('generateModal').classList.remove('open');
     callC('generate_graph', [type, nbV, nbE, nbIterations]);
 });
@@ -268,10 +219,10 @@ function updateActionButtons() {
     document.getElementById('runHortonBtn').disabled = !graphData;
 }
 
-
 function reconstructCyclePath(edgeIndices, edges) {
     if (edgeIndices.length === 0) return [];
-    const cycleEdges = edgeIndices.map(function(eId) { return edges.find(function(e) { return e.id === eId; }); });
+    const cycleEdges = edgeIndices.map(function( edgeId) { return edges.find(function(e)
+    { return e.id ===  edgeId; }); });
     const path = [cycleEdges[0].u, cycleEdges[0].v];
     const used = new Set([0]);
     while (used.size < cycleEdges.length) {
@@ -280,14 +231,13 @@ function reconstructCyclePath(edgeIndices, edges) {
         for (let i = 0; i < cycleEdges.length; i++) {
             if (used.has(i)) continue;
             const edge = cycleEdges[i];
-            if (edge.u === current)      { path.push(edge.v); used.add(i); found = true; break; }
+            if (edge.u === current) { path.push(edge.v); used.add(i); found = true; break; }
             else if (edge.v === current) { path.push(edge.u); used.add(i); found = true; break; }
         }
         if (!found) break;
     }
     return path;
 }
-
 
 function renderAll() {
     const d = graphData;
@@ -297,7 +247,7 @@ function renderAll() {
     document.getElementById('headerMeta').style.display = 'flex';
     document.getElementById('metaV').textContent = d.V;
     document.getElementById('metaE').textContent = d.E;
-    document.getElementById('metaM').textContent = d.M;
+    document.getElementById('metaB').textContent = d.B;
     document.getElementById('metaD').textContent = d.D;
     document.getElementById('emptyState').style.display = 'none';
     document.getElementById('graphSvg').style.display = 'block';
@@ -314,11 +264,15 @@ function buildSidebar() {
     const d = graphData;
     const container = document.getElementById('basesList');
     container.innerHTML = '';
-    var cycleKey = function(edgeIndices) { return edgeIndices.slice().sort(function(a,b){return a-b;}).join(','); };
-    var cyclePresence = {};
+    const cycleKey = function (edgeIndices) {
+        return edgeIndices.slice().sort(function (a, b) {
+            return a - b;
+        }).join(',');
+    };
+    const cyclePresence = {};
     d.bases.forEach(function(cycles, bIdx) {
         cycles.forEach(function(edgeIndices) {
-            var k = cycleKey(edgeIndices);
+            const k = cycleKey(edgeIndices);
             if (!cyclePresence[k]) cyclePresence[k] = [];
             cyclePresence[k].push(bIdx);
         });
@@ -330,11 +284,19 @@ function buildSidebar() {
 
         const title = document.createElement('div');
         title.className = 'basis-title';
-        var isFace      = (d.faceBasis !== undefined && d.faceBasis >= 0 && d.faceBasis === bIdx);
-        var isFaceOuter = (Array.isArray(d.faceBasisOuter) && d.faceBasisOuter.includes(bIdx));
-        var faceBadge = isFace      ? '<span class="face-badge" title="Base = toutes les faces intérieures">Faces</span>' : '';
-        faceBadge    += isFaceOuter ? '<span class="face-badge-outer" title="Base = face extérieure + D−1 faces intérieures">Faces ext.</span>' : '';
-        title.innerHTML = '<span>Basis ' + (bIdx+1) + '</span>' + faceBadge + '<span class="basis-badge">' + d.D + ' cycles</span>';
+        const isFace = (d.faceBasis !== undefined && d.faceBasis >= 0 && d.faceBasis === bIdx);
+        const isFaceOuter = (Array.isArray(d.faceBasisOuter) && d.faceBasisOuter.includes(bIdx));
+
+        let faceBadge = isFace ?
+            '<span class="face-badge" title="Base = toutes les faces intérieures">Faces</span>' : '';
+
+        faceBadge    += isFaceOuter ?
+            '<span class="face-badge-outer" title="Base = face extérieure + D−1 faces intérieures">Faces ext.</span>'
+            : '';
+
+        title.innerHTML = '<span>Basis ' + (bIdx+1) + '</span>' + faceBadge + '<span class="basis-badge">' + d.D
+            + ' cycles</span>';
+
         const cyclesList = document.createElement('div');
         cyclesList.className = 'cycles-list';
         title.addEventListener('click', function() { toggleBasis(bIdx, title, cyclesList); });
@@ -345,16 +307,21 @@ function buildSidebar() {
             item.className = 'cycle-item';
             const color = PALETTE[(bIdx * d.D + cIdx) % PALETTE.length];
             const path = reconstructCyclePath(edgeIndices, d.edges);
-            const edgesList = edgeIndices.map(function(eId) {
-                const e = d.edges.find(function(edge) { return edge.id === eId; });
+            const edgesList = edgeIndices.map(function( edgeId) {
+                const e = d.edges.find(function(edge) { return edge.id ===  edgeId; });
                 return '(' + e.u + ',' + e.v + ')';
             }).join(', ');
-            var k = cycleKey(edgeIndices);
-            var presence = cyclePresence[k] || [];
-            var presenceText = '';
+            const k = cycleKey(edgeIndices);
+            const presence = cyclePresence[k] || [];
+            let presenceText;
             if (presence.length > 1) {
-                var others = presence.filter(function(i) { return i !== bIdx; }).map(function(i) { return 'B' + (i+1); });
-                presenceText = '<div class="cycle-presence">Présent dans ' + others.length +' autres bases: ' + others.join(', ') + '</div>';
+                const others = presence.filter(function (i) {
+                    return i !== bIdx;
+                }).map(function (i) {
+                    return 'B' + (i + 1);
+                });
+                presenceText = '<div class="cycle-presence">Présent dans ' + others.length +' autres bases: '
+                    + others.join(', ') + '</div>';
             } else {
                 presenceText = '<div class="cycle-presence unique">Unique à cette base</div>';
             }
@@ -365,7 +332,10 @@ function buildSidebar() {
                 '<div class="cycle-detail">Path: ' + path.join(' -> ') + '</div>' +
                 presenceText +
                 '</div>';
-            item.addEventListener('click', function(e) { e.stopPropagation(); selectCycle(bIdx, cIdx, item); });
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                selectCycle(bIdx, cIdx, item);
+            });
             cyclesList.appendChild(item);
         });
 
@@ -376,9 +346,12 @@ function buildSidebar() {
 
 function toggleBasis(bIdx, titleEl, cyclesListEl) {
     const isOpen = cyclesListEl.classList.contains('open');
-    document.querySelectorAll('.cycles-list').forEach(function(el) { el.classList.remove('open'); });
-    document.querySelectorAll('.basis-title').forEach(function(el) { el.classList.remove('active'); });
-    document.querySelectorAll('.cycle-item').forEach(function(el) { el.classList.remove('active'); });
+    document.querySelectorAll('.cycles-list').forEach(function(el)
+    { el.classList.remove('open'); });
+    document.querySelectorAll('.basis-title').forEach(function(el)
+    { el.classList.remove('active'); });
+    document.querySelectorAll('.cycle-item').forEach(function(el)
+    { el.classList.remove('active'); });
     selectedVertex = null; selectedEdge = null;
     if (!isOpen || activeBasis !== bIdx) {
         cyclesListEl.classList.add('open');
@@ -392,8 +365,10 @@ function toggleBasis(bIdx, titleEl, cyclesListEl) {
 }
 
 function selectCycle(bIdx, cIdx, itemEl) {
-    document.querySelectorAll('.cycle-item').forEach(function(el) { el.classList.remove('active'); });
-    document.querySelectorAll('.basis-title').forEach(function(el) { el.classList.remove('active'); });
+    document.querySelectorAll('.cycle-item').forEach(function(el)
+    { el.classList.remove('active'); });
+    document.querySelectorAll('.basis-title').forEach(function(el)
+    { el.classList.remove('active'); });
     selectedVertex = null; selectedEdge = null;
     const alreadyActive = activeBasis === bIdx && activeCycle === cIdx;
     if (alreadyActive) {
@@ -408,35 +383,40 @@ function selectCycle(bIdx, cIdx, itemEl) {
 }
 
 
-function selectVertexElement(vid) {
+function selectVertexElement(vertexId) {
     if (editMode === MODE.ADD_EDGE) {
         if (addEdgeFirst === null) {
-            addEdgeFirst = vid;
-            document.getElementById('addEdgeHint').textContent = 'Sommet ' + vid + ' selectionne, cliquez sur le 2e...';
+            addEdgeFirst = vertexId;
+            document.getElementById('addEdgeHint').textContent = 'Sommet ' + vertexId + ' sélectionné, ' +
+                'cliquez sur le 2nd...';
             renderGraph();
         } else {
-            if (addEdgeFirst === vid) { setStatus('Meme sommet !', 'err'); return; }
+            if (addEdgeFirst === vertexId) { setStatus('Même sommet !', 'err'); return; }
             const u = addEdgeFirst;
             addEdgeFirst = null;
             setEditMode(MODE.NORMAL);
-            setTimeout(function() { callC('add_edge', [u, vid, nbIterations]); }, 0);
+            setTimeout(function() { callC('add_edge', [u, vertexId, nbIterations]); }, 0);
         }
         return;
     }
-    document.querySelectorAll('.cycle-item').forEach(function(el) { el.classList.remove('active'); });
-    document.querySelectorAll('.basis-title').forEach(function(el) { el.classList.remove('active'); });
+    document.querySelectorAll('.cycle-item').forEach(function(el)
+    { el.classList.remove('active'); });
+    document.querySelectorAll('.basis-title').forEach(function(el)
+    { el.classList.remove('active'); });
     activeCycle = null;
-    selectedVertex = selectedVertex === vid ? null : vid;
+    selectedVertex = selectedVertex === vertexId ? null : vertexId;
     selectedEdge = null;
     updateActionButtons();
     renderGraph();
 }
 
-function selectEdgeElement(eid) {
-    document.querySelectorAll('.cycle-item').forEach(function(el) { el.classList.remove('active'); });
-    document.querySelectorAll('.basis-title').forEach(function(el) { el.classList.remove('active'); });
+function selectEdgeElement(edgeId) {
+    document.querySelectorAll('.cycle-item').forEach(function(el)
+    { el.classList.remove('active'); });
+    document.querySelectorAll('.basis-title').forEach(function(el)
+    { el.classList.remove('active'); });
     activeCycle = null;
-    selectedEdge = selectedEdge === eid ? null : eid;
+    selectedEdge = selectedEdge ===  edgeId ? null : edgeId;
     selectedVertex = null;
     updateActionButtons();
     renderGraph();
@@ -478,12 +458,12 @@ function computeIntersections() {
     for (let i = 0; i < d.edges.length; i++) {
         const ei = d.edges[i];
         const a = d.vertexMap[ei.u], b = d.vertexMap[ei.v];
-        if (!a || !b) continue; // sommet supprimé
+        if (!a || !b) continue;
         for (let j = i+1; j < d.edges.length; j++) {
             const ej = d.edges[j];
             if (ei.u===ej.u||ei.u===ej.v||ei.v===ej.u||ei.v===ej.v) continue;
             const c = d.vertexMap[ej.u], dd = d.vertexMap[ej.v];
-            if (!c || !dd) continue; // sommet supprimé
+            if (!c || !dd) continue;
             const pt = segmentsIntersect(a, b, c, dd);
             if (pt) { crossingEdges.add(ei.id); crossingEdges.add(ej.id); points.push(pt); }
         }
@@ -506,7 +486,6 @@ function renderGraph() {
     const crossingEdges = inter.crossingEdges, intersectionPoints = inter.points;
     const nbInter = intersectionPoints.length;
 
-    // Texte en bas
     let infoText = document.getElementById('intersectionInfo');
     if (!infoText) {
         infoText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -530,11 +509,11 @@ function renderGraph() {
 
     const highlightedEdges = new Set(), highlightedNodes = new Set(), cycleColors = {};
     if (activeBasis !== null && activeCycle !== null) {
-        const eids = d.bases[activeBasis][activeCycle];
+        const  edgeIds = d.bases[activeBasis][activeCycle];
         const color = PALETTE[(activeBasis * d.D + activeCycle) % PALETTE.length];
-        eids.forEach(function(eId) {
-            highlightedEdges.add(eId); cycleColors[eId] = color;
-            const edge = d.edges.find(function(e) { return e.id === eId; });
+         edgeIds.forEach(function( edgeId) {
+            highlightedEdges.add( edgeId); cycleColors[ edgeId] = color;
+            const edge = d.edges.find(function(e) { return e.id ===  edgeId; });
             highlightedNodes.add(edge.u); highlightedNodes.add(edge.v);
         });
     } else if (selectedVertex !== null && activeBasis !== null) {
@@ -542,9 +521,9 @@ function renderGraph() {
             const path = reconstructCyclePath(edgeIds, d.edges);
             if (path.indexOf(selectedVertex) >= 0) {
                 const color = PALETTE[(activeBasis * d.D + cIdx) % PALETTE.length];
-                edgeIds.forEach(function(eId) {
-                    highlightedEdges.add(eId); cycleColors[eId] = color;
-                    const edge = d.edges.find(function(e) { return e.id === eId; });
+                edgeIds.forEach(function( edgeId) {
+                    highlightedEdges.add( edgeId); cycleColors[ edgeId] = color;
+                    const edge = d.edges.find(function(e) { return e.id ===  edgeId; });
                     highlightedNodes.add(edge.u); highlightedNodes.add(edge.v);
                 });
             }
@@ -553,9 +532,9 @@ function renderGraph() {
         d.bases[activeBasis].forEach(function(edgeIds, cIdx) {
             if (edgeIds.indexOf(selectedEdge) >= 0) {
                 const color = PALETTE[(activeBasis * d.D + cIdx) % PALETTE.length];
-                edgeIds.forEach(function(eId) {
-                    highlightedEdges.add(eId); cycleColors[eId] = color;
-                    const edge = d.edges.find(function(e) { return e.id === eId; });
+                edgeIds.forEach(function( edgeId) {
+                    highlightedEdges.add( edgeId); cycleColors[ edgeId] = color;
+                    const edge = d.edges.find(function(e) { return e.id ===  edgeId; });
                     highlightedNodes.add(edge.u); highlightedNodes.add(edge.v);
                 });
             }
@@ -563,9 +542,9 @@ function renderGraph() {
     } else if (activeBasis !== null) {
         d.bases[activeBasis].forEach(function(edgeIds, cIdx) {
             const color = PALETTE[(activeBasis * d.D + cIdx) % PALETTE.length];
-            edgeIds.forEach(function(eId) {
-                highlightedEdges.add(eId); cycleColors[eId] = color;
-                const edge = d.edges.find(function(e) { return e.id === eId; });
+            edgeIds.forEach(function( edgeId) {
+                highlightedEdges.add( edgeId); cycleColors[ edgeId] = color;
+                const edge = d.edges.find(function(e) { return e.id ===  edgeId; });
                 highlightedNodes.add(edge.u); highlightedNodes.add(edge.v);
             });
         });
@@ -589,8 +568,8 @@ function renderGraph() {
         line.setAttribute('x1', p1.px); line.setAttribute('y1', p1.py);
         line.setAttribute('x2', p2.px); line.setAttribute('y2', p2.py);
         line.classList.add('edge');
-        if (isSel)       { line.classList.add('selected'); }
-        else if (isHL)   { line.classList.add('highlighted'); line.style.stroke = cycleColors[edge.id]; }
+        if (isSel) { line.classList.add('selected'); }
+        else if (isHL) { line.classList.add('highlighted'); line.style.stroke = cycleColors[edge.id]; }
         else if (isCross && !hasHL) { line.classList.add('crossing'); }
         edgesG.appendChild(line);
 
@@ -598,10 +577,12 @@ function renderGraph() {
         hit.setAttribute('x1', p1.px); hit.setAttribute('y1', p1.py);
         hit.setAttribute('x2', p2.px); hit.setAttribute('y2', p2.py);
         hit.style.stroke = 'transparent'; hit.style.strokeWidth = '12'; hit.style.cursor = 'pointer';
-        hit.addEventListener('mouseenter', function(e) { showTooltip(e, 'Arete ' + edge.id + '  (' + edge.u + ' -> ' + edge.v + ')'); });
+        hit.addEventListener('mouseenter', function(e) { showTooltip(e, 'Arête '
+            + edge.id + '  (' + edge.u + ', ' + edge.v + ')'); });
         hit.addEventListener('mousemove', moveTooltip);
         hit.addEventListener('mouseleave', hideTooltip);
-        hit.addEventListener('click', function(e) { e.stopPropagation(); selectEdgeElement(edge.id); });
+        hit.addEventListener('click', function(e) { e.stopPropagation();
+            selectEdgeElement(edge.id); });
         edgesG.appendChild(hit);
     });
 
@@ -642,10 +623,10 @@ function renderGraph() {
         label.classList.add('node-label');
         if (isHL) label.classList.add('highlighted');
 
-
         g.appendChild(circle); g.appendChild(label);
         g.style.cursor = 'pointer';
-        g.addEventListener('mouseenter', function(e) { showTooltip(e, 'Sommet ' + v.id + '  (' + v.x.toFixed(1) + ', ' + v.y.toFixed(1) + ')'); });
+        g.addEventListener('mouseenter', function(e) { showTooltip(e, 'Sommet '
+            + v.id + '  (' + v.x.toFixed(1) + ', ' + v.y.toFixed(1) + ')'); });
         g.addEventListener('mousemove', moveTooltip);
         g.addEventListener('mouseleave', hideTooltip);
         g.addEventListener('click', function(e) {
@@ -678,7 +659,8 @@ document.getElementById('canvasArea').addEventListener('click', function(e) {
     const pos = unproject(e.clientX - rect.left, e.clientY - rect.top);
     setEditMode(MODE.NORMAL);
     // setTimeout 0 : même raison que pour add_edge — différer après le cycle d'événements.
-    setTimeout(function() { callC('add_vertex', [pos.x.toFixed(3), pos.y.toFixed(3), nbIterations]); }, 0);
+    setTimeout(function() { callC('add_vertex', [pos.x.toFixed(3),
+        pos.y.toFixed(3), nbIterations]); }, 0);
 });
 
 svg.addEventListener('click', function(e) {

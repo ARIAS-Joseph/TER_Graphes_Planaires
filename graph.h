@@ -81,6 +81,7 @@ typedef struct {
     cycle of the basis */
     int is_faces; /**< 1 if this basis correspond to all faces (except the outer one), 0 otherwise */
     int is_faces_outer; /**< 1 if this basis correspond to all faces (including the outer one) except one, 0 otherwise */
+    int length;
 } Minimal_basis;
 
 /**
@@ -133,6 +134,7 @@ typedef struct {
     int nb_face_basis_outer; /**< Number of minimal bases that correspond to the outer face + all
     interior faces except one. */
     int outer_face; /**< Index of the outer face in graph->faces, or -1 if the face decomposition has not been computed. */
+    int no_face_basis_possible; /**< 1 if none of the found basis can be the face basis, 0 otherwise. */
 } Graph;
 
 Graph *create_graph();

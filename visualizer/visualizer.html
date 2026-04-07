@@ -4,9 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Graph Visualizer</title>
-    <link rel="stylesheet" href="visualizer2.css">
+    <link rel="stylesheet" href="visualizer.css">
     <style>
-        /* Badge orange for "outer face basis" (face extérieure + D-1 faces intérieures) */
         .face-badge-outer {
             font-size: 0.7rem;
             background: #2a1e08;
@@ -34,7 +33,7 @@
     <div id="headerMeta" class="header-meta">
         <span class="meta-item">Sommets: <span id="metaV">–</span></span>
         <span class="meta-item">Arêtes: <span id="metaE">–</span></span>
-        <span class="meta-item">Bases: <span id="metaM">–</span></span>
+        <span class="meta-item">Bases: <span id="metaB">–</span></span>
         <span class="meta-item">Nb cyclomatique: <span id="metaD">–</span></span>
     </div>
 </div>
@@ -90,10 +89,10 @@
             <div class="panel-section-title">Arêtes</div>
             <button class="btn" id="addEdgeBtn">Ajouter arête</button>
             <div id="addEdgeHint" style="font-size:0.72rem;color:#64748b;display:none">
-                Cliquez sur le 1er sommet…
+                Cliquez sur le 1er sommet, puis sur le 2nd pour créer l'arête
             </div>
             <button class="btn danger" id="deleteEdgeBtn" disabled>Supprimer arête</button>
-            <button class="btn" id="splitEdgeBtn" disabled>Split arête(s)…</button>
+            <button class="btn" id="splitEdgeBtn" disabled>Subdiviser arête(s)</button>
         </div>
 
         <div class="panel-section">
@@ -114,9 +113,9 @@
 
 <div class="modal-overlay" id="splitModal">
     <div class="modal">
-        <h2>Split d'arêtes</h2>
+        <h2>Subdivision arêtes</h2>
         <div>
-            <label>Arêtes à splitter</label>
+            <label>Arêtes à subdiviser</label>
             <div id="splitEdgeList"></div>
         </div>
         <div>
@@ -161,8 +160,8 @@
     </div>
 </div>
 
-<script src="graph_tool.js"></script>
+<script src="graph_visualizer_wasm.js"></script>
 <script src="graph_wasm_bridge.js"></script>
-<script src="visualizer2.js" type="module"></script>
+<script src="visualizer.js" type="module"></script>
 </body>
 </html>

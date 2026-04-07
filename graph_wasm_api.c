@@ -171,6 +171,17 @@ void wasm_add_vertex(double x, double y, int n_horton) {
 EMSCRIPTEN_KEEPALIVE
 void wasm_delete_vertex(int vid, int n_horton) {
     if (!g || vid < 0 || vid >= g->nb_vertex) return;
+    /*
+     * reset_bases() est indispensable avant toute mutation :
+     *   1. Il remet nb_faces à 0, ce qui force find_faces() dans horton()
+     *      à recalculer les faces du nouveau graphe.  Sans ça, mb_is_faces()
+     *      compare contre les faces de l'ancien graphe et ne reconnaît jamais
+     *      la base des faces.
+     *   2. Il invalide les anciennes bases dont les edges_ids sont dimensionnés
+     *      pour l'ancien nb_edges.  Après compactage, nb_edges diminue et
+     *      already_exists_basis() lirait hors bornes → faux doublons.
+     */
+    reset_bases();
     delete_vertex(g, vid);   /* handles incident edges + compact_graph */
     run_horton(n_horton);
 }
@@ -198,6 +209,10 @@ void wasm_add_edge(int u, int v, int n_horton) {
 EMSCRIPTEN_KEEPALIVE
 void wasm_delete_edge(int eid, int n_horton) {
     if (!g || eid < 0 || eid >= g->nb_edges) return;
+    /* Même raison que wasm_delete_vertex : reset_bases() force find_faces()
+     * et invalide les anciennes bases dont les tailles sont devenues fausses
+     * après compactage. */
+    reset_bases();
     delete_edge(g, eid);   /* includes compact_graph */
     run_horton(n_horton);
 }

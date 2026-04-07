@@ -1,15 +1,3 @@
-/**
- * @file graph.c
- * @brief Implementation of the planar graph data structure and associated algorithms.
- *
- * This file provides the full implementation of the Graph structure, including vertex and edge
- * management, face detection, shortest-path computation, and Horton's minimal cycle basis
- * algorithm.
- *
- * Any function that changes the graph topology (create_edge, delete_edge, create_vertex,
- * delete_vertex, split_edge) automatically calls invalidate_bases() before modifying the structure.
- */
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,12 +10,8 @@
 /**
  * @brief Invalidate all derived data that depends on the graph topology.
  *
- * Must be called whenever the topology changes (vertices or edges added/removed).
- * Frees:
- *  - all minimal cycle bases (edges_ids vectors sized to the old nb_edges),
- *  - all per-face path data (edges_ids, edges_labels, vertices_ids).
- *
- * Resets the corresponding counters so that algorithms recompute from scratch on the new topology.
+ * Must be called whenever the topology changes (vertices or edges added/removed). Resets the
+ * corresponding counters so that algorithms recompute from scratch on the new topology.
  *
  * @param g Graph whose derived data must be invalidated.
  */
@@ -62,19 +46,16 @@ static void invalidate_bases(Graph *g) {
     g->nb_faces = 0;
     g->outer_face = -1;
     g->face_basis = -1;
+    g->no_face_basis_possible = 0;
     g->nb_face_basis_outer = 0;
     free(g->face_basis_outer);
     g->face_basis_outer = NULL;
 }
 
 /**
- * @brief Allocate and initialise an empty graph.
+ * @brief Allocate and initialize an empty graph.
  *
- * Creates a new Graph with default dynamic-array capacities for vertices, edges, neighbor lists,
- * and Horton cycles. All algorithm-result fields (edge_indices, predecessors, distances,
- * minimals_basis, face data) are initialised to NULL or zero.
- *
- * @return Pointer to the newly created graph.  Exits on allocation failure.
+ * @return Pointer to the newly created graph. Exits on allocation failure.
  */
 Graph *create_graph() {
     Graph *graph = calloc(1, sizeof(Graph));
@@ -104,7 +85,6 @@ Graph *create_graph() {
         perror("create_graph: edges"); exit(1);
     }
 
-    /* faces capacity: upper bound from Euler's formula for planar graphs */
     graph->faces = malloc(
         (2 + graph->capacity_edges + graph->capacity_vertices) * sizeof(Path));
     if (!graph->faces) {
@@ -121,11 +101,12 @@ Graph *create_graph() {
         perror("create_graph: horton_cycles"); exit(1);
     }
 
-    graph->face_basis_outer = malloc(0);
+    graph->face_basis_outer = NULL;
 
     graph->face_basis = -1;
     graph->outer_face = -1;
     graph->nb_face_basis_outer = 0;
+    graph->no_face_basis_possible = 0;
     graph->edge_indices = NULL;
     graph->predecessors = NULL;
     graph->distances = NULL;
@@ -138,10 +119,6 @@ Graph *create_graph() {
 
 /**
  * @brief Free all memory associated with a graph.
- *
- * Releases vertices, edges, neighbor lists (including the angles arrays), algorithm matrices
- * (edge_indices, predecessors, distances), face path arrays, Horton cycles, minimal cycle bases,
- * and the graph structure itself.
  *
  * @param g Graph to destroy.
  */
@@ -201,10 +178,15 @@ void delete_graph(Graph *g) {
  * @brief Save the graph to a text file.
  *
  * File format (all IDs are re-numbered sequentially, deleted elements skipped):
- * V E M D face_basis outer_face_basis_1 ... outer_face_basis_n
+ * V E B D face_basis outer_face_basis_1 ... outer_face_basis_n
  * vertex_id x_coordinate y_coordinate (V vertex lines)
  * edge_id id_vertex_u id_vertex_v (E edge lines)
- * edge_id ... (M * D cycle lines: space-separated edge IDs per cycle)
+ * edge_id ... (B * D cycle lines: space-separated edge IDs per cycle)
+ *
+ * V is the number of vertices, E the number of edges, B the number of different minimal basis,
+ * D the dimension of the basis, face_basis the index of the basis representing the internal faces
+ * and outer_face_basis_i the index of the basis representing the outer face and all the internal
+ * ones except one.
  *
  * @param g Graph to save.
  * @param filename Output file path.
@@ -217,7 +199,7 @@ void save_graph(const Graph *g, const char *filename) {
         fclose(file); perror("save_graph: invalid graph"); exit(1);
     }
 
-    /* Build remapping tables: old index → sequential ID, -1 if deleted */
+    /* Build remapping tables */
     int *vertices_id_map = calloc(g->nb_vertex, sizeof(int));
     int *edges_id_map = calloc(g->nb_edges,  sizeof(int));
     if (!vertices_id_map || !edges_id_map) { perror("save_graph: maps"); exit(1); }
@@ -229,10 +211,6 @@ void save_graph(const Graph *g, const char *filename) {
         edges_id_map[i] = g->edges[i].deleted ? -1 : nb_e++;
 
     if (g->minimals_basis) {
-        /* Format: V E M D face_basis nb_outer_bases [idx1 idx2 ...]
-         * face_basis        : 1-based index of the basis = interior faces, or -1
-         * nb_outer_bases    : number of bases that equal (outer face + D-1 interior faces)
-         * idx1 idx2 ...     : 1-based indices of those bases (absent when nb_outer_bases == 0) */
         fprintf(file, "%d %d %d %d %d %d",
                 nb_v, nb_e, g->nb_minimal_bases, g->basis_dimension,
                 g->face_basis, g->nb_face_basis_outer);
@@ -277,7 +255,8 @@ void save_graph(const Graph *g, const char *filename) {
 /**
  * @brief Load a graph from a file produced by save_graph().
  *
- * g must be a newly created and empty graph.
+ * g must be a newly created and empty graph. The format should be the same that presented in
+ * save_graph().
  *
  * @param g Destination graph (must be empty).
  * @param filename File to read.
@@ -289,14 +268,14 @@ void load_graph(Graph *g, const char *filename) {
     int nb_vertex, nb_edges, nb_minimal_bases, basis_dimension, face_basis;
     int nb_face_basis_outer = 0;
 
-    /* Read 6 mandatory fields: V E M D face_basis nb_outer_bases */
-    int n_read = fscanf(file, "%d %d %d %d %d %d",
+    /* Read fields: V E B D face_basis nb_outer_bases */
+    const int n_read = fscanf(file, "%d %d %d %d %d %d",
                         &nb_vertex, &nb_edges, &nb_minimal_bases,
                         &basis_dimension, &face_basis, &nb_face_basis_outer);
     if (n_read < 5) {
         fclose(file); perror("load_graph: header"); exit(1);
     }
-    /* Treat a legacy -1 sentinel as "no outer bases" */
+
     if (nb_face_basis_outer < 0) nb_face_basis_outer = 0;
 
     /* Read the (possibly empty) list of outer-basis indices that follows on the same line */
@@ -335,11 +314,11 @@ void load_graph(Graph *g, const char *filename) {
     if (nb_minimal_bases > 0 && basis_dimension > 0) {
         g->minimals_basis = calloc(nb_minimal_bases, sizeof(Minimal_basis));
         if (!g->minimals_basis) { perror("load_graph: minimals_basis"); exit(1); }
-        g->nb_minimal_bases      = nb_minimal_bases;
-        g->basis_dimension       = basis_dimension;
-        g->face_basis            = face_basis;
-        g->nb_face_basis_outer   = nb_face_basis_outer;
-        g->face_basis_outer      = face_basis_outer_arr; /* transfer ownership */
+        g->nb_minimal_bases = nb_minimal_bases;
+        g->basis_dimension = basis_dimension;
+        g->face_basis = face_basis;
+        g->nb_face_basis_outer = nb_face_basis_outer;
+        g->face_basis_outer = face_basis_outer_arr;
 
         fprintf(stdout, "Loading bases (nb=%d dim=%d)...\n",
                 nb_minimal_bases, basis_dimension); fflush(stdout);
@@ -348,7 +327,7 @@ void load_graph(Graph *g, const char *filename) {
             g->minimals_basis[b].cycles = calloc(basis_dimension, sizeof(Path));
             if (!g->minimals_basis[b].cycles) { perror("load_graph: cycles"); exit(1); }
 
-            /* Restore face-basis flags: both indices are now 0-based */
+            /* is_faces: check if this basis is the face basis */
             g->minimals_basis[b].is_faces =
                 (face_basis >= 0 && face_basis == b) ? 1 : 0;
 
@@ -361,12 +340,8 @@ void load_graph(Graph *g, const char *filename) {
                 }
             }
 
-            /*
-             * Line buffer on the heap, not the stack.
-             * char line[65536] on the WASM stack overflows the default 64 KB
-             * WASM stack immediately when basis_dimension > 0.
-             */
-            const int LINE_BUF = 1 << 20; /* 1 MB — handles very long cycle lines */
+            /* Line buffer on the heap, not the stack. */
+            const int LINE_BUF = 1 << 20; /* 1 MB in order to handle very long cycle lines */
             char *line = malloc(LINE_BUF);
             if (!line) { perror("load_graph: line buffer"); exit(1); }
 
@@ -380,11 +355,11 @@ void load_graph(Graph *g, const char *filename) {
                 if (!fgets(line, LINE_BUF, file)) break;
 
                 int count = 0;
-                char *tok = strtok(line, " \t\r\n");
+                const char *tok = strtok(line, " \t\r\n");
                 while (tok) {
-                    int eid = atoi(tok);
-                    if (eid >= 0 && eid < g->nb_edges) {
-                        g->minimals_basis[b].cycles[i].edges_ids[eid] = 1;
+                    const int edge_id = atoi(tok);
+                    if (edge_id >= 0 && edge_id < g->nb_edges) {
+                        g->minimals_basis[b].cycles[i].edges_ids[edge_id] = 1;
                         count++;
                     }
                     tok = strtok(NULL, " \t\r\n");
@@ -405,9 +380,9 @@ void load_graph(Graph *g, const char *filename) {
  * Appends a new Vertex and initializes its (empty) neighbor list. Doubles array capacities when
  * needed.
  *
- * @param g  Graph to modify.
- * @param x  X coordinate.
- * @param y  Y coordinate.
+ * @param g Graph to modify.
+ * @param x X coordinate.
+ * @param y Y coordinate.
  */
 void create_vertex(Graph *g, const double x, const double y) {
     invalidate_bases(g);
@@ -446,16 +421,12 @@ void create_vertex(Graph *g, const double x, const double y) {
 /**
  * @brief Add an edge between two existing vertices.
  *
- * Inserts the edge into the edges array and updates both endpoints' neighbor
- * lists, maintaining sorted polar-angle order.
- * Doubles array capacities when needed.
- *
- * @note Calls invalidate_bases() because adding an edge increases nb_edges,
- *       making all existing edges_ids vectors (sized to the old nb_edges) invalid.
+ * Inserts the edge into the edges array and updates both neighbor lists, maintaining sorted
+ * polar-angle order. Doubles array capacities when needed.
  *
  * @param g Graph to modify.
- * @param v1_id ID of the first endpoint (must be valid and not deleted).
- * @param v2_id ID of the second endpoint (must be valid and not deleted).
+ * @param v1_id ID of the first vertex (must be valid and not deleted).
+ * @param v2_id ID of the second vertex (must be valid and not deleted).
  */
 void create_edge(Graph *g, const int v1_id, const int v2_id) {
     invalidate_bases(g);
@@ -495,7 +466,7 @@ void create_edge(Graph *g, const int v1_id, const int v2_id) {
         int pos = neigh_list->count;
         while (pos > 0 && neigh_list->angles[pos - 1] > angle) {
             neigh_list->neighbors[pos] = neigh_list->neighbors[pos - 1];
-            neigh_list->angles[pos]    = neigh_list->angles[pos - 1];
+            neigh_list->angles[pos] = neigh_list->angles[pos - 1];
             pos--;
         }
         neigh_list->neighbors[pos] = ids[(i + 1) % 2];
@@ -509,12 +480,12 @@ void create_edge(Graph *g, const int v1_id, const int v2_id) {
 }
 
 /**
- * @brief Internal edge deletion — marks the slot deleted and updates neighbour
- * lists, but does NOT compact the arrays.
+ * @brief Internal edge deletion — marks the slot deleted and updates neighbor lists, but does NOT
+ * compact the arrays.
  *
- * Must be used instead of delete_edge() when several edges are removed in a
- * single pass (e.g. inside delete_vertex) so that IDs remain stable throughout
- * the loop.  The caller is responsible for calling compact_graph() afterwards.
+ * Must be used instead of delete_edge() when several edges are removed in a single pass
+ * (like delete_vertex) so that IDs remain stable throughout the loop. The caller is responsible for
+ * calling compact_graph() afterward.
  */
 static void delete_edge_impl(Graph *g, const int e_id) {
     invalidate_bases(g);
@@ -538,7 +509,7 @@ static void delete_edge_impl(Graph *g, const int e_id) {
         if (g->neighbors[v].neighbors[i] == u) {
             const int last = --g->neighbors[v].count;
             g->neighbors[v].neighbors[i] = g->neighbors[v].neighbors[last];
-            g->neighbors[v].angles[i]    = g->neighbors[v].angles[last];
+            g->neighbors[v].angles[i] = g->neighbors[v].angles[last];
             break;
         }
     }
@@ -546,15 +517,6 @@ static void delete_edge_impl(Graph *g, const int e_id) {
 
 /**
  * @brief Compact the graph arrays by removing all deleted vertex/edge slots.
- *
- * After one or more deletions, vertices[] and edges[] may contain holes
- * (deleted == 1).  This function:
- *  1. Builds remapping tables  old_id → new_sequential_id  (−1 if deleted).
- *  2. Shifts non-deleted vertices and edges to fill the holes; updates vertex
- *     id/label and edge id/u/v accordingly.
- *  3. Frees all neighbour lists and rebuilds them from the compacted edge set
- *     using the same insertion-sort-by-angle logic as create_edge().
- *  4. Frees the stale BFS matrices (reallocated on the next Horton run).
  *
  * Does nothing if no vertex or edge has been deleted since the last compaction.
  * invalidate_bases() must have been called before compact_graph() so that bases
@@ -565,7 +527,7 @@ static void delete_edge_impl(Graph *g, const int e_id) {
 void compact_graph(Graph *g) {
     if (!g) return;
 
-    /* ── 1. Build remapping tables ─────────────────────────────────────── */
+    /* Build remapping tables */
     int *vmap = malloc(g->nb_vertex * sizeof(int));
     int *emap = malloc(g->nb_edges  * sizeof(int));
     if (!vmap || !emap) { free(vmap); free(emap); perror("compact_graph: maps"); exit(1); }
@@ -578,40 +540,39 @@ void compact_graph(Graph *g) {
     for (int i = 0; i < g->nb_edges; i++)
         emap[i] = g->edges[i].deleted ? -1 : new_ne++;
 
-    /* Early-exit: nothing to compact */
+    /* Nothing to compact */
     if (new_nv == g->nb_vertex && new_ne == g->nb_edges) {
         free(vmap); free(emap);
         return;
     }
 
-    /* ── 2. Compact vertices in-place, update id and label ─────────────── */
+    /* Compact vertices, update id and label */
     for (int i = 0; i < g->nb_vertex; i++) {
         if (vmap[i] < 0) continue;
-        g->vertices[vmap[i]]       = g->vertices[i];
-        g->vertices[vmap[i]].id    = vmap[i];
+        g->vertices[vmap[i]] = g->vertices[i];
+        g->vertices[vmap[i]].id = vmap[i];
         g->vertices[vmap[i]].label = vmap[i];
     }
     g->nb_vertex = new_nv;
 
-    /* ── 3. Compact edges in-place, remap endpoints and id ─────────────── */
+    /* Compact edges, remap vertices and id */
     for (int i = 0; i < g->nb_edges; i++) {
         if (emap[i] < 0) continue;
-        g->edges[emap[i]]    = g->edges[i];
-        g->edges[emap[i]].u  = vmap[g->edges[i].u];
-        g->edges[emap[i]].v  = vmap[g->edges[i].v];
+        g->edges[emap[i]] = g->edges[i];
+        g->edges[emap[i]].u = vmap[g->edges[i].u];
+        g->edges[emap[i]].v = vmap[g->edges[i].v];
         g->edges[emap[i]].id = emap[i];
     }
     g->nb_edges = new_ne;
 
-    /* ── 4. Rebuild neighbour lists from compacted edges ───────────────── */
-    /* Free all existing lists across the full allocated capacity */
+    /* Rebuild neighbor lists */
     for (int i = 0; i < g->capacity_vertices; i++) {
         free(g->neighbors[i].neighbors);
         free(g->neighbors[i].angles);
         g->neighbors[i].neighbors = NULL;
-        g->neighbors[i].angles    = NULL;
-        g->neighbors[i].count     = 0;
-        g->neighbors[i].capacity  = 0;
+        g->neighbors[i].angles = NULL;
+        g->neighbors[i].count = 0;
+        g->neighbors[i].capacity = 0;
     }
 
     /* Re-insert each edge using insertion sort by angle (same as create_edge) */
@@ -632,6 +593,7 @@ void compact_graph(Graph *g) {
                 nl->neighbors = tn;
                 nl->angles    = ta;
             }
+
             /* Insertion sort to maintain ascending angle order */
             int pos = nl->count;
             while (pos > 0 && nl->angles[pos - 1] > angle) {
@@ -645,10 +607,10 @@ void compact_graph(Graph *g) {
         }
     }
 
-    /* ── 5. Free stale BFS matrices (reallocated by prepare_graph_matrices) */
+    /* Free BFS matrices (reallocated by prepare_graph_matrices) */
     free(g->edge_indices); g->edge_indices = NULL;
     free(g->predecessors); g->predecessors = NULL;
-    free(g->distances);    g->distances    = NULL;
+    free(g->distances); g->distances = NULL;
 
     free(vmap);
     free(emap);
@@ -657,21 +619,19 @@ void compact_graph(Graph *g) {
 /**
  * @brief Delete an edge and compact the graph arrays.
  *
- * @param g   Graph to modify.
+ * @param g Graph to modify.
  * @param e_id Index of the edge to delete.
  */
 void delete_edge(Graph *g, const int e_id) {
     delete_edge_impl(g, e_id);
+    invalidate_bases(g);
     compact_graph(g);
 }
 
 /**
  * @brief Delete a vertex and all its incident edges, then compact the graph.
  *
- * Uses delete_edge_impl() for each incident edge so that IDs remain stable
- * during the loop — compact_graph() is called once at the end.
- *
- * @param g    Graph to modify.
+ * @param g Graph to modify.
  * @param v_id ID of the vertex to delete.
  */
 void delete_vertex(Graph *g, const int v_id) {
@@ -681,6 +641,7 @@ void delete_vertex(Graph *g, const int v_id) {
             delete_edge_impl(g, e);
     }
     g->vertices[v_id].deleted = 1;
+    invalidate_bases(g);
     compact_graph(g);
 }
 
@@ -973,6 +934,12 @@ Path create_path(const Graph *g, const int u, const int v) {
     return p;
 }
 
+/*
+ * @brief Find the outer face among all faces and mark its edges as outer edges. Update the
+ * g->outer_face field.
+ *
+ * @param g Graph with computed faces.
+ */
 static void find_outer_face(Graph *g) {
 
     int leftmost = -1;
@@ -1025,7 +992,6 @@ static void find_outer_face(Graph *g) {
  *
  * @param g Graph to analyze. Must have its neighbor lists sorted in CCW order.
  */
-
 void find_faces(Graph *g) {
 
     if (g->faces) {
@@ -1062,7 +1028,7 @@ void find_faces(Graph *g) {
         for (int i = 0; i < g->neighbors[v].count; i++) {
             const int neigh = g->neighbors[v].neighbors[i];
 
-            /* If this directed edge (v -> neigh) hasn't been part of a face yet */
+            /* If the edge (v, neigh) hasn't been part of a face yet */
             if (visited[v * n + neigh]) continue;
 
             Path *face = &g->faces[g->nb_faces];
@@ -1071,7 +1037,6 @@ void find_faces(Graph *g) {
             face->edges_labels = calloc(m, sizeof(uint32_t));
             face->length = 0;
 
-            double area = 0.0;
             int u = v, p = neigh;
 
             /* walk around the face by following the "right-hand rule" */
@@ -1083,7 +1048,7 @@ void find_faces(Graph *g) {
                 const int eid = g->edge_indices[u * n + p];
                 if (eid >= 0) {
                     face->edges_ids[eid] = 1;
-                    /* Guard: label may be stale (larger than current nb_edges)
+                    /* Guard: label may be larger than current nb_edges
                      * if find_faces() is called outside a full Horton run. */
                     const int lbl = g->edges[eid].label;
                     if (lbl >= 0 && lbl < m)
@@ -1106,12 +1071,8 @@ void find_faces(Graph *g) {
                 /* Pick the next neighbor in the CCW sorted list (idx + 1). This corresponds to a
                  * "right turn" in the embedding */
                 const int w = nl->neighbors[(idx + 1 + nl->count) % nl->count];
-                u = p; p = w; // Move to the next edge (p -> w)
+                u = p; p = w; // Move to the next edge (p, w)
             }
-
-            /* Outer Face Identification: In this specific traversal, the face with the largest
-            (most positive) signed area is the infinite (outer) face */
-
             g->nb_faces++;
         }
     }
@@ -1230,12 +1191,14 @@ int compare_cycles(const void *a, const void *b) {
 
 /**
  * @brief Sort the Horton cycle list by length (shortest first).
+ *
  * @param g Graph whose horton_cycles are to be sorted.
  */
 void order_horton_cycles(const Graph *g) {
     nb_edges_for_qsort = g->nb_edges;
     if (g->nb_horton_cycles > 1)
-        qsort(g->horton_cycles, g->nb_horton_cycles, sizeof(Path), compare_cycles);
+        qsort(g->horton_cycles, g->nb_horton_cycles, sizeof(Path),
+            compare_cycles);
 }
 
 /**
@@ -1268,8 +1231,8 @@ void order_orton_cycles_permutations(const Graph *g) {
 /**
  * @brief Check whether two cycles have identical edge sets and length.
  *
- * @param c1       First cycle.
- * @param c2       Second cycle.
+ * @param c1 First cycle.
+ * @param c2 Second cycle.
  * @param nb_edges Size of the edges_ids vectors.
  * @return 1 if identical, 0 otherwise.
  */
@@ -1288,9 +1251,9 @@ int are_same_cycles_qsort(const void *c1, const void *c2) {
  *
  * Sorts copies of both bases by cycle weight, then compares them element-wise.
  *
- * @param a               First basis.
- * @param b               Second basis.
- * @param nb_edges        Size of the edges_ids vectors.
+ * @param a First basis.
+ * @param b Second basis.
+ * @param nb_edges Size of the edges_ids vectors.
  * @param basis_dimension Number of cycles in each basis.
  * @return 1 if the bases are identical, 0 otherwise.
  */
@@ -1303,9 +1266,9 @@ int are_same_minimal_bases(const void *a, const void *b,
     if (!s1 || !s2) { free(s1); free(s2); perror("are_same_minimal_bases"); exit(1); }
 
     for (int i = 0; i < basis_dimension; i++) {
-        s1[i].length    = mb1->cycles[i].length;
+        s1[i].length = mb1->cycles[i].length;
         s1[i].edges_ids = malloc(nb_edges * sizeof(uint32_t));
-        s2[i].length    = mb2->cycles[i].length;
+        s2[i].length = mb2->cycles[i].length;
         s2[i].edges_ids = malloc(nb_edges * sizeof(uint32_t));
         if (!s1[i].edges_ids || !s2[i].edges_ids) {
             perror("are_same_minimal_bases: malloc"); exit(1);
@@ -1335,7 +1298,7 @@ int are_same_minimal_bases(const void *a, const void *b,
 /**
  * @brief Check whether a candidate basis already appears in the graph's list.
  *
- * @param g         Graph containing the known bases.
+ * @param g Graph containing the known bases.
  * @param candidate Candidate basis to search for.
  * @return 1 if the candidate duplicates an existing basis, 0 otherwise.
  */
@@ -1352,20 +1315,20 @@ int already_exists_basis(const Graph *g, const Minimal_basis candidate) {
 /**
  * @brief Test whether a minimal basis equals the set of interior faces.
  *
- * Compares the candidate basis @p mb (sorted by edge set) to the interior
+ * Compares the candidate basis mb (sorted by edge set) to the interior
  * faces of the graph (all faces except the outer face, also sorted).
  *
  * @param g  Graph with a precomputed face decomposition.
  * @param mb Candidate minimal basis to test.
- * @return 1 if @p mb matches the face basis, 0 otherwise.
+ * @return 1 if mb matches the face basis, 0 otherwise.
  */
 int mb_is_faces(Graph *g, const Minimal_basis *mb) {
 
     if (!g->faces || g->nb_faces == 0) find_faces(g);
 
-    /* If find_outer_face() failed (e.g. disconnected graph), outer_face is -1.
+    /* If find_outer_face() failed (because of disconnected graph), outer_face is -1.
      * In that case we cannot distinguish "interior faces only" from "outer face
-     * included", so bail out to avoid incorrectly tagging bases. */
+     * included", so return 0 to avoid incorrectly tagging bases. */
     if (g->outer_face < 0) return 0;
 
     int D = g->basis_dimension;
@@ -1407,12 +1370,12 @@ int mb_is_faces(Graph *g, const Minimal_basis *mb) {
  *
  * If the dimension of the new basis differs from the stored one (which should
  * not happen if invalidate_bases() was called before every topology mutation),
- * all stale bases are cleared and the new basis replaces them.
+ * all old bases are cleared and the new basis replaces them.
  *
  * The is_faces flag is set when the computed basis matches the interior face set
  * (Euler: F = E − V + 2, so nb_faces = basis_dimension + 1).
  *
- * @param g Graph.  g->horton_cycles must be non-empty and sorted.
+ * @param g Graph. g->horton_cycles must be non-empty and sorted.
  */
 void greedy_cycle_cover(Graph *g) {
     if (!g->horton_cycles || g->nb_horton_cycles == 0) {
@@ -1471,7 +1434,7 @@ void greedy_cycle_cover(Graph *g) {
         if (mcb_count != g->basis_dimension) {
             /*
              * Safety net: dimension mismatch means topology changed without
-             * triggering invalidate_bases().  Discard all stale bases.
+             * triggering invalidate_bases(). Discard all old bases.
              * This branch should never be reached in normal usage.
              */
             fprintf(stderr,
@@ -1510,34 +1473,25 @@ void greedy_cycle_cover(Graph *g) {
      * We pass &mb (the newly computed MCB) to mb_is_faces, which compares each
      * cycle of the MCB against the graph's faces.
      *
-     * BUG FIX: the previous code passed &face_mb (cycles = g->faces), which
-     * compared faces against faces — always trivially true.  The correct call
-     * compares the newly computed MCB against the faces.
-     *
      * mb_is_faces() returns:
-     *   1  — MCB equals the D interior faces (skip == outer face)
-     *   2  — MCB equals outer face + D-1 interior faces (skip != outer face)
+     *   1  — MCB equals the D interior faces
+     *   2  — MCB equals outer face + D-1 interior faces
      *   0  — no match
-     *
-     * Both face_basis and face_basis_outer are 1-based so that the JS comparison
-     *   faceBasis === bIdx + 1   (bIdx 0-based)
-     * works correctly.
      */
-    mb.is_faces       = 0;
+    mb.is_faces = 0;
     mb.is_faces_outer = 0;
     if (g->faces && g->nb_faces == mcb_count + 1) {
         const int result = mb_is_faces(g, &mb);
         if (result == 1) {
             mb.is_faces   = 1;
-            g->face_basis = g->nb_minimal_bases; /* 0-based, before increment */
+            g->face_basis = g->nb_minimal_bases;
         } else if (result == 2) {
             mb.is_faces_outer = 1;
-            /* Append the 0-based index of this basis to the face_basis_outer array */
             int *tmp = realloc(g->face_basis_outer,
                                (g->nb_face_basis_outer + 1) * sizeof(int));
             if (!tmp) { perror("greedy_cycle_cover: realloc face_basis_outer"); exit(1); }
             g->face_basis_outer = tmp;
-            g->face_basis_outer[g->nb_face_basis_outer] = g->nb_minimal_bases; /* 0-based */
+            g->face_basis_outer[g->nb_face_basis_outer] = g->nb_minimal_bases;
             g->nb_face_basis_outer++;
         }
     }
@@ -1553,7 +1507,7 @@ void greedy_cycle_cover(Graph *g) {
 /**
  * @brief Free the Horton cycle list without touching any other graph state.
  *
- * Called at the start of each Horton run so stale cycles from the previous
+ * Called at the start of each Horton run so old cycles from the previous
  * invocation do not pollute the new enumeration.
  *
  * @param g Graph whose Horton cycle list is to be cleared.
@@ -1573,13 +1527,13 @@ void reset_graph_results(Graph *g) {
  * @brief Run one iteration of Horton's minimal cycle basis algorithm.
  *
  * Pipeline:
- *  1. reset_graph_results()         — clear previous Horton cycle list,
- *  2. prepare_graph_matrices()      — (re-)allocate edge_indices / BFS matrices,
- *  3. compute_all_shortest_paths()  — BFS from every non-deleted vertex,
- *  4. find_faces() if nb_faces == 0 — face decomposition for face-basis detection,
- *  5. find_horton_cycles()          — enumerate candidate cycles,
- *  6. order_orton_cycles_permutations() — sort by length + label order,
- *  7. greedy_cycle_cover()          — extract one minimal basis.
+ *  1. Clear previous Horton cycle list,
+ *  2. Allocate edge_indices / BFS matrices,
+ *  3. BFS from every non-deleted vertex to find shortest paths,
+ *  4. Face decomposition for face-basis detection,
+ *  5. Enumerate candidate cycles,
+ *  6. Sort cycles by length and label order,
+ *  7. Extract one minimal basis.
  *
  * @param g Graph on which to run the algorithm.
  */
@@ -1587,22 +1541,137 @@ void horton(Graph *g) {
     reset_graph_results(g);
     prepare_graph_matrices(g);
     compute_all_shortest_paths(g);
-    find_faces(g);
+    if (g->faces == NULL || g->nb_faces == 0) find_faces(g);
     find_horton_cycles(g);
     order_orton_cycles_permutations(g);
     greedy_cycle_cover(g);
 }
 
 /**
+ * @brief Try to add the interior face set as a minimal cycle basis.
+ *
+ * For a connected planar graph the interior faces always span the cycle space, so they always form
+ * a basis — no independence check needed. However, we need to check if this  basis is *minimal*,
+ * (if the sum of the face lengths equals the total weight of the minimal bases already found by
+ * Horton). If so, the face basis is appended to the list (or tagged if Horton
+ * already found it without recognizing it as the face basis).
+ *
+ * @param g Graph with a precomputed face decomposition.
+ */
+static void try_add_face_basis(Graph *g) {
+    if (!g->faces || g->nb_faces == 0) return;
+    if (g->outer_face < 0) return;
+    if (g->basis_dimension <= 0) return;
+    if (g->nb_faces != g->basis_dimension + 1) return;  /* Euler: F = E-V+2 */
+
+    /* Sum of interior face lengths. */
+    int face_weight = 0;
+    for (int f = 0; f < g->nb_faces; f++) {
+        if (f == g->outer_face) continue;
+        face_weight += g->faces[f].length;
+    }
+
+    /* Sum of cycle lengths of any known minimal basis (all MCBs have the same
+     * total weight — use the first one). */
+    if (g->nb_minimal_bases == 0) return;
+    int basis_weight = 0;
+    for (int c = 0; c < g->basis_dimension; c++)
+        basis_weight += g->minimals_basis[0].cycles[c].length;
+
+    /* The face set is minimal only if weights match. */
+    if (face_weight != basis_weight) return;
+
+    /* Build the candidate and check for duplicates. */
+    Path *mcb = calloc(g->basis_dimension, sizeof(Path));
+    if (!mcb) { perror("try_add_face_basis: mcb"); exit(1); }
+
+    int ci = 0;
+    for (int f = 0; f < g->nb_faces; f++) {
+        if (f == g->outer_face) continue;
+        mcb[ci].length      = g->faces[f].length;
+        mcb[ci].edges_ids   = malloc(g->nb_edges * sizeof(uint32_t));
+        mcb[ci].edges_labels = calloc(g->nb_edges, sizeof(uint32_t));
+        if (!mcb[ci].edges_ids || !mcb[ci].edges_labels) {
+            perror("try_add_face_basis: mcb entry"); exit(1);
+        }
+        memcpy(mcb[ci].edges_ids, g->faces[f].edges_ids,
+               g->nb_edges * sizeof(uint32_t));
+        ci++;
+    }
+
+    Minimal_basis mb = { .cycles = mcb, .is_faces = 1, .is_faces_outer = 0 };
+
+    if (already_exists_basis(g, mb)) {
+        /* Horton found this basis but didn't tag it — fix the tag. */
+        for (int b = 0; b < g->nb_minimal_bases; b++) {
+            if (are_same_minimal_bases(&g->minimals_basis[b], &mb,
+                                       g->nb_edges, g->basis_dimension)) {
+                g->minimals_basis[b].is_faces = 1;
+                g->face_basis = b;
+                break;
+            }
+        }
+        for (int c = 0; c < g->basis_dimension; c++) {
+            free(mcb[c].edges_ids);
+            free(mcb[c].edges_labels);
+        }
+        free(mcb);
+        return;
+    }
+
+    /* New basis — append it. */
+    g->face_basis = g->nb_minimal_bases;
+    g->nb_minimal_bases++;
+    Minimal_basis *tmp = realloc(g->minimals_basis,
+                                 g->nb_minimal_bases * sizeof(Minimal_basis));
+    if (!tmp) { perror("try_add_face_basis: realloc"); exit(1); }
+    g->minimals_basis = tmp;
+    g->minimals_basis[g->nb_minimal_bases - 1] = mb;
+}
+
+/**
+ * @brief Return the maximum number of cycles any single edge appears in, across all cycles of a
+ * given basis.
+ */
+static int max_edge_cycle_count(const Minimal_basis *mb,
+                                const int nb_cycles, const int nb_edges) {
+    int *count = calloc(nb_edges, sizeof(int));
+    if (!count) { perror("max_edge_cycle_count"); exit(1); }
+    for (int c = 0; c < nb_cycles; c++)
+        for (int e = 0; e < nb_edges; e++)
+            if (mb->cycles[c].edges_ids[e]) count[e]++;
+    int mx = 0;
+    for (int e = 0; e < nb_edges; e++) if (count[e] > mx) mx = count[e];
+    free(count);
+    return mx;
+}
+
+/**
+ * @brief Update g->no_face_basis_possible.
+ *
+ * In any planar embedding, each interior edge borders exactly 2 faces, so each
+ * edge can appear in at most 2 cycles of any face-basis. If every stored basis
+ * has at least one edge that appears in 3 or more cycles, then no drawing of
+ * the graph can yield a face decomposition equal to any known basis, and the
+ * flag is set to 1. It is reset to 0 as soon as a face basis is found.
+ */
+static void update_no_face_basis_possible(Graph *g) {
+    if (g->face_basis >= 0) { g->no_face_basis_possible = 0; return; }
+    if (g->nb_minimal_bases == 0) return;
+
+    for (int b = 0; b < g->nb_minimal_bases; b++) {
+        const int mx = max_edge_cycle_count(&g->minimals_basis[b],
+                                            g->basis_dimension, g->nb_edges);
+        if (mx < 3) { g->no_face_basis_possible = 0; return; }
+    }
+    g->no_face_basis_possible = 1;
+}
+
+/**
  * @brief Run Horton's algorithm multiple times with different edge-label permutations.
  *
- * By permuting edge labels between runs, the greedy cover selects different
- * cycles among those of equal length, potentially discovering new minimal bases.
- * Duplicate bases are detected and skipped by greedy_cycle_cover().
- *
- * @param g               Graph on which to run.
- * @param inv             Caller-allocated inversion table buffer (size: g->nb_edges).
- *                        Contents are overwritten on every iteration.
+ * @param g Graph on which to run.
+ * @param inv Caller-allocated inversion table buffer (size: g->nb_edges).
  * @param max_permutations Number of permuted runs to execute.
  */
 void multiple_horton(Graph *g, int *inv, const int max_permutations) {
@@ -1610,6 +1679,8 @@ void multiple_horton(Graph *g, int *inv, const int max_permutations) {
         printf("multiple_horton: missing inversion table or edges, skipping.\n");
         return;
     }
+
+    find_faces(g);
 
     int *perm = calloc(g->nb_edges, sizeof(int));
     if (!perm) { perror("multiple_horton: perm"); exit(1); }
@@ -1629,4 +1700,11 @@ void multiple_horton(Graph *g, int *inv, const int max_permutations) {
     }
 
     free(perm);
+
+    /* If Horton never found the face basis, try adding it explicitly. */
+    if (g->face_basis < 0)
+        try_add_face_basis(g);
+
+    /* Set the diagnostic flag (no face basis reachable regardless of drawing). */
+    update_no_face_basis_possible(g);
 }

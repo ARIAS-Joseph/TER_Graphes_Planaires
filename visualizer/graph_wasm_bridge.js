@@ -4,13 +4,12 @@ const GraphWasm = (() => {
     let M = null;
 
     function readGraph() {
-        const nbVTotal = M._wasm_nb_vertices();
-        const nbETotal = M._wasm_nb_edges();
+        const nbVertices = M._wasm_nb_vertices();
+        const nbEdges = M._wasm_nb_edges();
         const nbBases = M._wasm_nb_bases();
-        const D = M._wasm_basis_dimension();
+        const Dimension = M._wasm_basis_dimension();
         const faceBasis = M._wasm_face_basis();
 
-        /* Read the full array of outer-face-basis indices */
         const nbFaceBasisOuter = typeof M._wasm_nb_face_basis_outer === 'function'
             ? M._wasm_nb_face_basis_outer() : 0;
         const faceBasisOuter = [];
@@ -19,19 +18,17 @@ const GraphWasm = (() => {
                 faceBasisOuter.push(M._wasm_face_basis_outer_at(i));
         }
 
-
         const vertices  = [];
         const vertexMap = {};
-        for (let i = 0; i < nbVTotal; i++) {
+        for (let i = 0; i < nbVertices; i++) {
             if (M._wasm_vertex_deleted(i)) continue;
             const v = { id: i, x: M._wasm_vertex_x(i), y: M._wasm_vertex_y(i) };
             vertices.push(v);
             vertexMap[i] = v;
         }
 
-
         const edges = [];
-        for (let i = 0; i < nbETotal; i++) {
+        for (let i = 0; i < nbEdges; i++) {
             if (M._wasm_edge_deleted(i)) continue;
             edges.push({
                 id: i,
@@ -44,18 +41,9 @@ const GraphWasm = (() => {
         const bases = [];
         for (let b = 0; b < nbBases; b++) {
             const cycles = [];
-            for (let c = 0; c < D; c++) {
+            for (let c = 0; c < Dimension; c++) {
                 const edgeIds = [];
-                /*
-                 * Use wasm_cycle_edge_at() instead of reading HEAPU32 directly.
-                 *
-                 * With ALLOW_MEMORY_GROWTH=1, loading a large graph (many bases)
-                 * triggers multiple WASM memory growths.  Each growth replaces the
-                 * underlying ArrayBuffer, making any previously obtained HEAPU32
-                 * reference stale → out-of-bounds reads.
-                 * Routing through this C accessor always reads current WASM memory.
-                 */
-                for (let i = 0; i < nbETotal; i++) {
+                for (let i = 0; i < nbEdges; i++) {
                     if (M._wasm_cycle_edge_at(b, c, i)) edgeIds.push(i);
                 }
                 cycles.push(edgeIds);
@@ -66,40 +54,29 @@ const GraphWasm = (() => {
         return {
             V: vertices.length,
             E: edges.length,
-            M: nbBases,
-            D,
+            B: nbBases,
+            D: Dimension,
             vertices,
             edges,
             bases,
             vertexMap,
             faceBasis,
-            faceBasisOuter  /* now an array of 1-based indices, e.g. [] or [2, 5] */
+            faceBasisOuter
         };
     }
-
 
     return {
 
         /**
-         * Load and initialise the WASM module.  Must be awaited once before
-         * any other call.  Mirrors the signature used in visualizer2.js:
-         *   await GraphWasm.init();
+         * Load and initialise the WASM module. Must be awaited once before any other call.
          */
         async init() {
-            M = await GraphModule();    // GraphModule comes from graph_tool.js
+            M = await GraphModule();
             M._wasm_init();
         },
 
         /**
          * Load a graph from a text string (save_graph format).
-         *
-         * For large files (many bases), ccall() with a 'string' argument fails
-         * because Emscripten copies the string via allocateUTF8OnStack(), which
-         * is limited to the WASM stack size (~64 KB).  A file with 1000 bases
-         * can be several MB, causing "index out of bounds".
-         *
-         * Fix: write the text directly to MEMFS with Module.FS.writeFile() and
-         * call wasm_load_from_file() with no arguments.
          *
          * @param {string} text
          */
@@ -109,22 +86,17 @@ const GraphWasm = (() => {
         },
 
         /**
-         * Read the current Graph* and return a plain JS object compatible with
-         * parseGraphFile()'s output format.  Call this after any action to
-         * refresh graphData in visualizer2.js.
+         * Read the current Graph* and return a plain JS object. Call
+         * this after any action to refresh graphData in visualizer.js.
          *
-         * @returns {{ V, E, M, D, vertices, edges, bases, vertexMap, faceBasis }}
+         * @returns {{ V, E, B, D, vertices, edges, bases, vertexMap, faceBasis }}
          */
         readGraph,
 
         /**
-         * Dispatch an action to the WASM module.
-         *
-         * Accepts the same { action, args } object that the old HTTP bridge
-         * used to receive, minus the `graph` text field (which is no longer
-         * needed: state lives in WASM memory).
-         *
-         * Returns a resolved Promise so that the `await` in callC() still works.
+         * Dispatch an action to the WASM module. The action is a string that determines which operation to perform,
+         * and args is an array of arguments for that operation. The exact meaning of the arguments depends on the
+         * action.
          *
          * @param {{ action: string, args: (string|number)[] }} param0
          * @returns {Promise<void>}
@@ -133,35 +105,33 @@ const GraphWasm = (() => {
 
             switch (action) {
 
-                /* ── Graph generation ─────────────────────────────── */
-
                 case 'generate_graph': {
                     // args = [type, nb_vertices, nb_edges, n_horton]
-                    const [type, nbV, nbE, nH = 10] = args;
+                    const [type,  nbVertices,  nbEdges,  nbHorton = 1000] = args;
                     if (type === 'outer_planar')
-                        M._wasm_generate_outer_planar(+nbV, +nbE, +nH);
+                        M._wasm_generate_outer_planar(+ nbVertices, + nbEdges, + nbHorton);
                     else
-                        M._wasm_generate_planar(+nbV, +nbE, +nH);
+                        M._wasm_generate_planar(+ nbVertices, + nbEdges, + nbHorton);
                     break;
                 }
 
                 case 'run_horton': {
                     // args = [n]
-                    M._wasm_run_horton(+(args[0] ?? 10));
+                    M._wasm_run_horton(+(args[0] ?? 1000));
                     break;
                 }
 
                 case 'add_vertex': {
                     // args = [x, y, n_horton]
-                    const [x, y, nH = 10] = args;
-                    M._wasm_add_vertex(+x, +y, +nH);
+                    const [x, y,  nbHorton = 1000] = args;
+                    M._wasm_add_vertex(+x, +y, + nbHorton);
                     break;
                 }
 
                 case 'delete_vertex': {
-                    // args = [vid, n_horton]
-                    const [vid, nH = 10] = args;
-                    M._wasm_delete_vertex(+vid, +nH);
+                    // args = [vertex_id, n_horton]
+                    const [vertex_id,  nbHorton = 1000] = args;
+                    M._wasm_delete_vertex(+vertex_id, + nbHorton);
                     break;
                 }
 
@@ -174,34 +144,29 @@ const GraphWasm = (() => {
 
                 case 'add_edge': {
                     // args = [u, v, n_horton]
-                    const [u, v, nH = 10] = args;
-                    M._wasm_add_edge(+u, +v, +nH);
+                    const [u, v,  nbHorton = 1000] = args;
+                    M._wasm_add_edge(+u, +v, + nbHorton);
                     break;
                 }
 
                 case 'delete_edge': {
                     // args = [eid, n_horton]
-                    const [eid, nH = 10] = args;
-                    M._wasm_delete_edge(+eid, +nH);
+                    const [eid,  nbHorton = 1000] = args;
+                    M._wasm_delete_edge(+eid, + nbHorton);
                     break;
                 }
 
                 case 'split_edges': {
                     const k    = +args[0];
-                    const nH   = +(args[1] ?? 10);
+                    const  nbHorton   = +(args[1] ?? 1000);
                     const eids = args.slice(2).map(Number);
                     const nEids = eids.length;
 
                     const ptr = M._malloc(nEids * 4);
-                    /*
-                     * Use wasm_write_int() instead of writing to HEAP32 directly.
-                     * HEAP32 can become stale if _malloc itself triggered a memory
-                     * growth and replaced the ArrayBuffer.
-                     */
                     for (let i = 0; i < nEids; i++)
                         M._wasm_write_int(ptr, i, eids[i]);
 
-                    M._wasm_split_edges(ptr, nEids, k, nH);
+                    M._wasm_split_edges(ptr, nEids, k,  nbHorton);
                     M._free(ptr);
                     break;
                 }
