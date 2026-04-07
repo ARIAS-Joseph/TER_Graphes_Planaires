@@ -1,8 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <direct.h>
 #include <time.h>
 #include <errno.h>
+
+#ifdef _WIN32
+  #include <direct.h>
+  #define make_dir(path) _mkdir(path)
+#else
+  #include <sys/stat.h>
+  #define make_dir(path) mkdir((path), 0755)
+#endif
 
 #include "graph.h"
 #include "planar_graph_creator.h"
@@ -18,7 +25,7 @@ void process_and_save(char* type, Graph *g, const int id) {
     multiple_horton(g, inv, 1000);
 
     if (g->no_face_basis_possible) {
-        const int dir_all = _mkdir("all_graphs");
+        const int dir_all = make_dir("all_graphs");
         if (dir_all == -1 && errno != EEXIST) {
             printf("Error creating directory all_graphs\n");
             free(inv);
@@ -27,7 +34,7 @@ void process_and_save(char* type, Graph *g, const int id) {
 
         char dir_buffer[100];
         snprintf(dir_buffer, 100, "./all_graphs/%s_%dbasis", type, g->nb_minimal_bases);
-        const int dir = _mkdir(dir_buffer);
+        const int dir = make_dir(dir_buffer);
         if (dir == -1 && errno != EEXIST) {
             printf("Error creating directory %s\n", dir_buffer);
             free(inv);
