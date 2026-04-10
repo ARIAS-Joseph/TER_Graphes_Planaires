@@ -1,6 +1,9 @@
 # Bases minimales de cycles dans les graphes planaires
 
-> Projet TER - Exploration de la conjecture "*les faces d'un graphe planaire forment-elles toujours une base minimale de cycles ?*" et études des bases minimales de cycles dans les graphes planaires.
+Projet TER - Les faces d'un graphe planaire forment-elles toujours une base minimale de cycles ? Etudes des bases de cycles minimales dans les graphes planaires.
+---
+
+Ce projet a été réalisé dans le cadre du TER du Master 1 Algorithmique et Modélisation à l'Interface des Sciences (AMIS) de l'Université de Versailles Saint-Quentin-en-Yvelines (UVSQ) en 2026, sous la supervision de Dominique BARTH et Chloé GODET.
 
 ---
 
@@ -20,57 +23,16 @@
 
 ## Contexte mathématique
 
-Soit $G = (V, E)$ un graphe connexe non orienté. L'**espace des cycles** de $G$ est un espace vectoriel sur $\mathbb{F}_2$ de dimension $\mu = |E| - |V| + 1$ (le **nombre cyclomatique**). Une **base minimale de cycles** (MCB - *Minimum Cycle Basis*) est une base de cet espace dont la somme des longueurs de cycles est minimale.
+Soit $G = (V, E)$ un graphe connexe non orienté, non pondéré, sans boucle et sans multi-arête. L'espace des cycles de $G$ est un espace vectoriel sur $\mathbb{F}_2$ de dimension $\mu = |E| - |V| + 1$ (le nombre cyclomatique). Une base minimale de cycles est une base de cet espace dont la somme des longueurs de cycles est minimale. Par base, on entend un ensemble de cycles indépendants qui génèrent tous les cycles du graphe et qui ne peuvent être générés par d'autres cycles de la base.
 
-Pour un graphe planaire, la décomposition en faces fournit naturellement $\mu$ cycles (les faces intérieures). La question centrale de ce projet est :
-
-> **L'ensemble des faces intérieures d'un graphe planaire constitue-t-il toujours une base minimale de cycles ?**
+Pour un graphe planaire, la décomposition en faces fournit naturellement $\mu$ cycles (les faces intérieures). La question centrale de ce projet est la suivante: l'ensemble des faces intérieures d'un graphe planaire constitue-t-il toujours une base minimale de cycles ?
 
 Pour répondre à cette question, le projet :
 
-1. **Génère** des graphes planaires et extérieurement planaires aléatoires.
-2. **Calcule** toutes les bases minimales distinctes trouvées via l'algorithme de Horton avec permutations des étiquettes d'arêtes.
-3. **Vérifie** si l'une de ces bases correspond exactement aux faces du graphe (face intérieure complète, ou face extérieure + $\mu-1$ faces intérieures).
-4. **Visualise** les résultats de façon interactive.
-
----
-
-## Structure du projet
-
-```
-.
-├── graph.h / graph.c               # Structure de données du graphe + algorithme de Horton
-├── permutations.h / permutations.c # Tables d'inversion, permutations, Fisher-Yates
-├── planar_graph_creator.h / .c     # Génération de graphes planaires/ext-planaires aléatoires
-├── graph_wasm_api.c                # API C exposée à WebAssembly via Emscripten
-├── study.c                         # Programme CLI pour étude statistique en masse
-├── script_emcc.txt                 # Commande de compilation
-├── buid_wasm.sh                    # Script de compilation Emscripten
-└── visualizer/
-    ├── visualizer.html             # Interface principale
-    ├── visualizer.css              # Styles
-    ├── visualizer.js               # Logique de rendu SVG et interactions
-    ├── graph_wasm_bridge.js        # Pont JS ↔ WASM (GraphWasm)
-    ├── graph_visualizer_wasm.js    # [généré] Glue JS Emscripten
-    └── graph_visualizer_wasm.wasm  # [généré] Module WebAssembly
-```
-
----
-
-## Algorithme de Horton
-
-L'algorithme de Horton (1984) calcule une base minimale de cycles en deux étapes :
-
-1. **Génération des cycles candidats** : pour chaque sommet $v$ et chaque arête $(u, w)$, on construit le cycle formé du plus court chemin $v \to u$, de l'arête $(u, w)$, et du plus court chemin $w \to v$.
-2. **Sélection par élimination gaussienne** sur $\mathbb{F}_2$ : on trie les cycles par longueur croissante et on sélectionne les cycles linéairement indépendants jusqu'à obtenir une base de dimension $\mu$.
-
-### Permutations pour trouver plusieurs bases
-
-Pour explorer **plusieurs bases minimales distinctes**, les étiquettes des arêtes sont permutées avant chaque exécution de Horton, ce qui influence l'ordre de sélection à longueur égale. Le projet parcourt des tables d'inversion successives (ou aléatoires) pour accumuler des bases distinctes.
-
-Pour chaque base trouvée, le programme vérifie si elle correspond :
-- **exactement aux faces intérieures**;
-- ou à **la face extérieure + $\mu-1$ faces intérieures**.
+1. Génère des graphes planaires et planaires extérieurs aléatoires.
+2. Fournit toutes les bases minimales distinctes trouvées via l'algorithme de Horton avec différentes numérotations pour les sommets et les arêtes.
+3. Vérifie si l'une de ces bases correspond exactement aux faces intérieures du graphe.
+4. Visualise les résultats et permet de modifier/créer des graphes planaires de façon interactive.
 
 ---
 
@@ -80,15 +42,15 @@ Le visualisateur est une application web utilisant le code C compilé en **WebAs
 
 ### Fonctionnalités
 
-| Fonctionnalité | Description                                                                                               |
-|---|-----------------------------------------------------------------------------------------------------------|
-| **Génération de graphes** | Graphes planaires ou extérieurement planaires aléatoires (nombre de sommets et d'arêtes paramétrables)    |
-| **Chargement / Sauvegarde** | Import/export au format texte natif                                                                       |
-| **Visualisation des bases** | Toutes les bases minimales trouvées sont listées                                                          |
-| **Inspection des cycles** | Clic sur une base ou un cycle pour le mettre en évidence sur le graphe en couleur                         |
-| **Édition interactive** | Ajout/suppression de sommets et d'arêtes, déplacement par glisser-déposer                                 |
-| **Subdivision d'arêtes** | Insertion de $k$ sommets sur une ou plusieurs arêtes                                                      |
-| **Détection d'intersections** | Les croisements d'arêtes sont détectés et affichés |
+| Fonctionnalité | Description                                                                                            |
+|---|--------------------------------------------------------------------------------------------------------|
+|Génération de graphes | Graphes planaires ou extérieurement planaires aléatoires (nombre de sommets et d'arêtes paramétrables) |
+| Chargement / Sauvegarde | Import/export au format texte                                                                          |
+| Visualisation des bases | Toutes les bases minimales trouvées sont listées                                                       |
+| Inspection des cycles | Clic sur une base ou un cycle pour le mettre en évidence sur le graphe en couleur                      |
+| Édition interactive | Ajout/suppression de sommets et d'arêtes, déplacement par glisser-déposer                              |
+| Subdivision d'arêtes| Insertion de $k$ sommets sur une ou plusieurs arêtes                                                   |
+| Détection d'intersections | Les croisements d'arêtes sont détectés et affichés                                                     |
 
 ---
 
@@ -193,31 +155,4 @@ Exemple (triangle) :
 2 0 2
 ```
 
-Les graphes enregistrés par le visualisateur suivent ce format, avec les coordonnées des sommets et les étiquettes d'arêtes. Les gens 0 0 -1 correspondent alors au nombre de bases minimales trouvées, au nombre de bases trouvées, à la dimension des bases, à la présence d'une base de faces intérieures (son indice), et à la présence d'une ou plusieurs bases composées de la face extérieure et les faces intérieures sauf une. Dans ce cas, après les lignes de sommets et d'arêtes, il y a une section supplémentaire listant les bases minimales trouvées, avec leurs cycles et les arêtes correspondantes.
-
----
-
-## Architecture du code
-
-```
-graph.c
- ├── Gestion du graphe (ajout et suppression de sommets/arêtes, déplacement, subdivision)
- ├── Calcul des plus courts chemins
- ├── Recherche des faces pour le plongement donné du graphe
- ├── Algorithme de Horton (avec ou sans itération sur les permutations d'étiquettes)
- └── Comparaison entre les bases minimales trouvées et les faces
-
-planar_graph_creator.c
- └── Création de graphes planaires et planaires extérieurs aléatoires
-
-permutations.c
- ├── Passer d'une table d'inversion à une permutation
- ├── Générer une table d'inversion aléatoire ou succesive à une autre
- └── Mélange de Fisher-Yates
-
-graph_wasm_api.c - wrappers EMSCRIPTEN_KEEPALIVE exposant l'API C au JS
-
-graph_wasm_bridge.js - GraphWasm
-
-visualizer.js - rendu html, interactions et sauvegarde
-```
+Les graphes enregistrés par le visualisateur suivent ce format, avec les coordonnées des sommets et les étiquettes d'arêtes. Les paramètres 0 0 -1 correspondent respectivement au nombre de bases minimales trouvées, à la dimension des bases et à l'indice d'une base de faces intérieures (ou -1 si inexistante/introuvée). Dans ce cas, après les lignes de sommets et d'arêtes, il y a une section supplémentaire listant les bases minimales trouvées, avec leurs cycles et les arêtes correspondantes.

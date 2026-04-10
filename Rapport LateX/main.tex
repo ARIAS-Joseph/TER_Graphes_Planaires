@@ -1,0 +1,538 @@
+\documentclass{article}
+
+\usepackage[french]{babel}
+\usepackage[a4paper,top=1.5cm,bottom=1.5cm,left=1cm,right=1cm,marginparwidth=1.75cm]{geometry}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{tikz}
+\usepackage[utf8]{inputenc}
+\usepackage{textcomp}
+\usepackage{parskip}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\setlength{\parindent}{1cm}
+\usepackage[toc,page]{appendix}
+\renewcommand{\appendixpagename}{Annexe}
+\renewcommand{\appendixtocname}{Annexe}
+
+\newtheorem{theorem}{Théorème}[section]
+\newtheorem{corollary}{Corollaire}[theorem]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{definition}[theorem]{Définition}
+\newtheorem{remark}[theorem]{Remarque}
+
+\begin{document}
+\begin{titlepage}
+    \centering
+    
+    \textsc{\Large Université de Versailles Saint-Quentin-en-Yvelines}\\[0.5cm]
+    \textsc{\large Master 1 Algorithmique et Modélisation à l'Interface des Sciences}\\[1.5cm]
+
+    \rule{\linewidth}{0.3mm} \\[0.4cm]
+    {\Huge TER} \\[0.4cm]
+    {\Huge \bfseries Bases de cycles minimales dans les \\ [0.2cm] graphes planaires} \\[0.4cm]
+    \rule{\linewidth}{0.3mm} \\[2cm]
+    {\Huge 2026}
+
+    \vfill
+
+    \begin{minipage}{0.45\textwidth}
+        \begin{flushleft} \large
+            \emph{Auteur :}\\
+            Joseph \textsc{Arias}
+        \end{flushleft}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.45\textwidth}
+        \begin{flushright} \large
+            \emph{Encadrants :}\\
+            Dominique \textsc{Barth} \\
+            Chloé \textsc{Godet}
+        \end{flushright}
+    \end{minipage}    
+
+\end{titlepage}
+\newpage
+\newpage
+\tableofcontents
+\newpage
+
+\section{Objectif}
+
+Le premier objectif de ce TER est de trouver l'ensemble des bases de cycles minimales pour des graphes planaires non orientés, non pondérés, sans arête multiple et sans boucle. Le deuxième objectif est de comparer les bases obtenues à la base formée par les faces internes du graphe afin de démontrer que l'ensemble des faces ne forme pas toujours une base de cycles minimale d'un graphe pour chacun de ses plongements. \\
+Ce TER a donc nécessité la génération des graphes planaires \og quelconques \fg\ et \og extérieurs \fg\ de manière aléatoire. Il a également fallu implémenter l'algorithme de Horton tel que décrit dans l'article \cite{Horton1984}. Cependant, ce dernier est déterministe, et donc, ne peut trouver qu'une seule base de cycle minimale. Pour tenter de trouver toutes les bases de cycles, des permutations sur les numéros des sommets et des arêtes ont été effectuées, tel que cela est fait dans l'article \cite{Vismara1997}. \\
+Pour finir, un algorithme de détection des faces pour un plongement donné d'un graphe planaire a été implémenté. \\
+Tous les algorithmes présentés dans ce TER ont été implémentés en C. Une compilation en WebAssembly a également été réalisée afin de visualiser les graphes et les bases de cycles trouvée. L'ensemble du code est disponible sur GitHub via le lien: \url{https://github.com/ARIAS-Joseph/TER_Graphes_Planaires/}
+
+\section{Rappels théoriques et notation}
+
+\begin{definition}[Chaîne]
+Dans un graphe $G=(V,E)$, une chaîne $P$ est une suite d'arêtes $(e_0, e_1,\ldots,e_n-1)$ telle que chaque paire d'arêtes successives  $(e_i, e_{i+1}) \forall i \in 0..n-2$ partage un sommet en commun. La longueur de la chaîne est $n$.
+\end{definition}
+
+\begin{definition}[Cycle]
+Dans un graphe $G=(V,E)$, un cycle simple $C$ de longueur $n$ est une chaîne telle que, avec $n \geq 3$, $e_0$ et $e_n-1$ partagent un sommet en commun.\\
+Soit 2 cycles notés $C$ et $D$. Le résultat de l'addition $C+D$ correspond à la différence symétrique entre $C$ et $D$, soit $(C \cup D) - (C \cap D)$.\\
+Un cycle $C$ peut également être représenté sous la forme d'un vecteur de cardinalité $\lvert E \rvert $. On a alors: \\
+
+$C_i= \left \{
+    \begin{array}{ll}
+        1 \text{ si } E_i \text{ appartient au cycle} \\
+        0 \text{ sinon.}
+    \end{array}
+\right.$
+\end{definition}
+
+Dans ce cas, l'addition de deux cycles correspond à l'addition dans le corps $\mathbb{F}_2$, ce qui correspond à l'opération logique XOR.
+
+\begin{definition}[Base de cycles]
+La base de cycles $\mathcal{B}$ d'un graphe connexe $G=(V,E)$ est un ensemble de cycles qui forme une famille libre et génératrice. Par libre, on entend que tous les cycles de la base sont indépendants; aucun ne peut se définir comme une combinaison linéaire d'autres dans le corps $\mathbb{F}_2$. Par génératrice, on entend que chaque cycle du graphe $G$ peut s'écrire par une combinaison linéaire des cycles de la base.
+La base de cycles minimale est la base dont la somme des longueurs des cycles la constituant, que l'on note $\ell(\mathcal{B})$, est minimale, c'est-à-dire qu'il n'existe pas de base avec une somme plus petite. $\ell(\mathcal{B}) = \sum\limits_{C \in \mathcal{B}} \lvert C \rvert $, où $\lvert C \rvert $ est le nombre d'arêtes que contient le cycle $C$.
+\end{definition}
+
+\begin{definition}[Graphe planaire]
+    Un graphe est dit planaire s'il admet un dessin dans le plan où aucune de ses arêtes ne se croise (en dehors de leurs extrémités). Un tel dessin est appelé un plongement planaire.
+\end{definition}
+
+\begin{definition}[Face]
+    Une face d'un graphe planaire est une zone du plan délimitée par des arêtes. Une visualisation est proposée à la figure \ref{faces}. On voit bien que les arêtes définissent deux zones finies ($F_1$ et $F_2$) que l'on nomme \og faces internes \fg et une zone infinie $F_\infty$ que l'on nomme \og face externe \fg.
+\end{definition}
+
+\begin{definition}[Graphe planaire extérieur]
+    Un graphe planaire est dit \og extérieur \fg si tous les sommets appartiennent à la face extérieure. Un exemple est montré à la figure \ref{outer-planar}.
+\end{definition}
+
+\begin{definition}[Nombre cyclomatique]
+    La base de cycles du graphe connexe $G=(V,E)$ contient $\lvert E \rvert -\lvert V \rvert +1$ cycles indépendants. Cela correspond au nombre de faces internes du graphe. On nomme le cardinal de la base de cycles nombre cyclomatique et on le note $\mu(G)$.
+    \label{nb_cyclo}
+\end{definition}
+
+\begin{figure}[h]
+    \centering
+        \begin{tikzpicture}[scale=1.5, vertex/.style={draw, circle, fill=white, inner sep=2pt}]
+        
+            \coordinate (A) at (0, 2);
+            \coordinate (B) at (-2, -1);
+            \coordinate (D) at (2, -1);
+            \coordinate (C) at (0, 0);
+        
+            \fill[gray!20, even odd rule] 
+                (-3, -2) rectangle (3, 3) 
+                (A) -- (B) -- (D) -- cycle;
+        
+            \fill[red!30] (A) -- (D) -- (C) -- (B) -- cycle;  
+            \fill[blue!30] (B) -- (C) -- (D) -- cycle; 
+        
+            \draw[thick] (A) -- (B) -- (D) -- cycle;
+            \draw[thick] (B) -- (C);
+            \draw[thick] (C) -- (D);
+        
+            \node[vertex] at (A) {A};
+            \node[vertex] at (B) {B};
+            \node[vertex] at (C) {C};
+            \node[vertex] at (D) {D};
+        
+            \node at (0, 0.8) {$F_1$};
+            \node at (0, -0.6) {$F_2$};
+            \node at (-2.5, 2.5) {$F_{\infty}$};
+        \end{tikzpicture}
+    \caption{Schéma d'un graphe planaire à deux faces internes et la face externe}
+    \label{faces}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    scale=2,
+    vertex/.style={draw, circle, fill=white, minimum size=6mm}
+]
+
+\foreach \i in {1,...,6} {
+    \coordinate (v\i) at ({60*(\i-1)}:1);
+}
+
+\fill[gray!20, even odd rule] 
+                (-1.5, -1.5) rectangle (1.5, 1.5) 
+                (v1) -- (v2) -- (v3) -- (v4) -- (v5) -- (v6) -- cycle;
+        
+\fill[red!30] (v3) -- (v4) -- (v5) -- cycle;  
+\fill[blue!30] (v3) -- (v2) -- (v1) -- cycle;
+\fill[green!30] (v6) -- (v5) -- (v1) -- cycle; 
+
+\foreach \i in {1,...,6} {
+    \node[vertex] (v\i) at ({60*(\i-1)}:1) {\i};
+}
+
+\foreach \i [evaluate=\i as \j using {int(mod(\i,6)+1)}] in {1,...,6} {
+    \draw (v\i) -- (v\j);
+}
+
+\draw (v1) -- (v3);
+\draw (v3) -- (v5);
+\draw (v5) -- (v1);
+
+\node at (-0.7, 0) {$F_1$};
+\node at (0.4, 0.6) {$F_2$};
+\node at (0.4, -0.6) {$F_3$};
+\node at (0, 0) {$F_4$};
+\node at (-1, 1) {$F_{\infty}$};
+
+\end{tikzpicture}
+\label{outer-planar}
+\caption{Exemple de graphe planaire extérieur}
+\end{figure}
+
+\section{Génération de graphes planaires aléatoires}
+
+\subsection{Génération de graphes planaires extérieurs aléatoires}
+
+Pour générer un graphe planaire extérieur à $n$ sommets, on crée d'abord le graphe cycle $C_n$. Ensuite, on prend deux sommets au hasard et on tente d'ajouter une arête entre eux. Si elle ne croise aucune arête existante, on la conserve, sinon, on la supprime. On peut tenter d'ajouter jusqu'à $n-3$ arêtes. En effet, un graphe planaire extérieur peut avoir au maximum $2n-3$ arêtes et le cycle créé en contient $n$. \\
+Cependant, il est préférable de ne pas trop ajouter d'arêtes afin d'éviter d'obtenir uniquement des graphes triangulaires, c'est à dire des graphes constitués uniquement de cycles de longueur 3.
+
+\subsection{Génération de graphes planaires aléatoires}
+
+Pour générer un graphe planaire à $n$ sommets de façon aléatoire, on commence par placer $n$ sommets au hasard dans un plan en s'assurant que deux sommets ne partagent pas les mêmes coordonnées. Afin de garantir la connexité du graphe, on génère d'abord un arbre couvrant. Pour cela, on génère la liste de toutes les arêtes possibles (à l'exception des boucles), soit $\frac{n(n-1)}{2}$ arêtes, que l'on mélange, avec l'algorithme de Fisher-Yates par exemple pour s'assurer un mélange uniforme. On parcourt ensuite le tableau obtenu en ajoutant une arête uniquement si elle ne croise pas d'autre arête et si son ajout ne forme pas de cycle.\\
+Une fois l'arbre obtenu, on parcourt la liste d'arêtes mélangée depuis le début pour tenter d'ajouter des arêtes supplémentaires. À chaque étape, on vérifie que l'arête candidate n'existe pas déjà et qu'elle ne croise aucune arête existante. Sachant que dans un graphe planaire à $n$ sommets le nombre maximum d'arêtes est $3n-6$ et que l'arbre créé contient $n-1$ arêtes, on peut au maximum ajouter $2n-5$ arêtes.
+
+\section{Algorithme pour trouver une base de cycles minimale}
+
+Pour trouver une base de cycles minimale $\mathcal{B}$ d'un graphe connexe $G=(V,E)$ non pondéré et non orienté, on utilise l'algorithme de Horton présenté dans l'article \cite{Horton1984}. Tout d'abord, pour chaque paire de sommet $(x,y) \in V^2 \text{ tel que } x \neq y$, on cherche la plus courte chaîne que l'on note $P(x,y)$ qui est l'ensemble des sommets appartenant à la chaîne. Ensuite, pour chaque sommet $s \in V$ et pour chaque arête $(u,v) \in E \text{ tel que } u \neq s \text{ et } v \neq s$, si $P(s,u) \cap P(s,v) = \{s\}$ alors on crée le cycle $C(s,u,v) = P(s,u) + P(s,v) + \{(u,v)\}$. Ensuite, on trie les circuits par longueur croissante puis on extrait la base de cycles minimale avec un algorithme glouton.
+
+\subsection{Calcul des plus courts chemins}\label{pcc}
+
+Tout d'abord, pour chaque paire de sommets $(u, v) \in V^2$, on cherche la longueur de la plus courte chaîne entre $u$ et $v$ en faisant un parcours en largeur en partant de $u$. On note $d(u,v)$ la distance qui sépare $u$ et $v$. \\
+Ensuite, pour chaque paire de sommets $(u, v) \in V^2$, on construit la plus courte chaîne $P(u,v)$. Pour cela, on choisit un voisin de $u$ à une distance $d-1$ de $v$ que l'on note $w$. Ensuite, on choisit un voisin de $w$ à distance $d-2$ de $v$ et à distance 2 de $u$. On itère ainsi jusqu'à atteindre $v$.
+
+
+\subsection{Construction des cycles}
+
+Pour chaque sommet $s$ et chaque arête $(u,v)$ avec $u \neq s$ et $v \neq s$, on crée le cycle $C(s,u,v) = P(s,u) + P(s,v) + \{(u,v)\}$ si les chaînes $P(s,u)$ et $P(s,v)$ n'ont en commun que le sommet $v$. Ce qui garantit que leur union forme un cycle simple.
+
+\subsection{Tri des cycles}
+
+Les cycles générés sont triés par longueur croissante. En cas d'égalité de longueur, les cycles sont départagés par l'ordre lexicographique sur l'indice de l'arête dans $E$.
+
+\subsection{Déterminer la base de cycles minimale par l'algorithme glouton}
+
+Pour trouver la base de cycles minimale, on parcourt la liste des cycles triée en ajoutant un cycle à la base s'il est indépendant des autres cycles de la base jusqu'à en avoir $\mu(G)$. On représente alors un cycle sous la forme d'un vecteur ligne $C$ avec $C_i = 1$ si l'arête $E_i$ appartient au cycle et $C_i = 0$ sinon. On se place donc dans le corps $\mathbb{F}_2$ étant donné que les cycles sont alors représentés sous la forme de vecteurs lignes de booléens. L’indépendance des cycles est testée par une élimination de Gauss sur $\mathbb{F}_2$. Une base échelonnée est maintenue en associant à chaque pivot un unique vecteur. Lorsqu’un nouveau cycle est traité, il est réduit par XOR avec les vecteurs existants jusqu’à soit devenir nul (auquel cas il n'est pas indépendant), soit introduire un nouveau pivot (auquel cas il est indépendant).
+
+\subsection{Savoir si une des bases de cycles minimale correspond à l'ensemble des faces}
+
+L'objectif de ce TER étant de déterminer si l'ensemble des faces (à l’exception de la face extérieure) forme une base de cycles minimale. Pour cela il a fallu implémenter un algorithme pour déterminer les faces d'un graphe dessiné.
+
+\subsubsection{Algorithme de reconnaissance des faces pour le dessin d'un graphe}
+
+Pour chaque sommet $s$, ses voisins sont triés par angle polaire croissant à l'aide de la fonction atan2. Ce tri assure un ordonnancement trigonométrique (anti-horaire) en partant de $-\pi$ (9h) comme montré dans la figure \ref{atan2}. Par conséquent, lors du parcours de face, choisir systématiquement le voisin suivant dans cette liste triée équivaut géométriquement à effectuer un virage à droite, permettant ainsi de délimiter les faces internes du plongement. \\
+Pour trouver les faces à partir de ce tri des voisins, on part d'un sommet $s$ et d'une arête $(s,v)$ que l'on marque. Ensuite, on regarde dans les voisins de $v$ le successeur de $s$  dans la liste des voisins triés en fonction de l'ordonnancement trigonométrique (que l'on note $u$) et on marque l'arête $(v,u)$. On itère ensuite jusqu'à retomber sur $s$. L'ensemble des arêtes marquées forme alors une face. Ensuite, on applique le même algorithme, mais en partant de $v$ et en regardant dans la liste des voisins de $s$ le successeur de $v$, puis en itérant comme indiqué précédemment. On procède ainsi avec chaque arête $e \in E$.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=1.5, vertex/.style={draw, circle, fill=white, inner sep=2pt}]
+
+\draw[->] (-2,0) -- (2,0) node[right] {$x$};
+\draw[->] (0,-1) -- (0,1.5) node[above] {$y$};
+
+\fill (0,0) circle (1pt);
+
+\coordinate (S) at (0,0);
+\coordinate (A) at (1.2,0.8);
+\coordinate (B) at (-0.9,0.9);
+\coordinate (C) at (-1.2,-0.4);
+\coordinate (D) at (1.1,-0.6);
+
+\draw[thick] (S) -- (A);
+\draw[thick] (S) -- (B);
+\draw[thick] (S) -- (C);
+\draw[thick] (S) -- (D);
+
+\node[vertex] at (S) {S};
+\node[vertex] at (A) {A};
+\node[vertex] at (B) {B};
+\node[vertex] at (C) {C};
+\node[vertex] at (D) {D};
+
+
+\node[above left] at (B) {$(-3,3)$};
+\node[below left] at (C) {$(-6,-1)$};
+\node[below right] at (D) {$(6,-2)$};
+
+\draw (0.5,0) arc[start angle=0,end angle=34,radius=0.5];
+\node at (0.7,0.25) {$63^\circ$};
+
+\node at (-0.4,0.7) {$135^\circ$};
+\node at (-0.5,-0.3) {$-170^\circ$};
+\node at (0.5,-0.6) {$-18^\circ$};
+
+\node at (1.2,1.4) {$\mathrm{atan2}(4,2)$};
+\node at (1.2,1.2) {$\approx 63^\circ$};
+
+\node at (0,-1.5) {Si on trie les voisin de s en fonction de atan2, on obtient l'ordre C,D,A,B.};
+\node at (0, -1.75) {Si on part de B et que l'on va vers S pour détecter une face, on ira ensuite visiter le sommet C.};
+
+\end{tikzpicture}
+\caption{Exemples de valeurs de $\mathrm{atan2}(y,x)$ selon la position relative des voisins d'un sommet s par rapport à ce même sommet s}
+\label{atan2}
+\end{figure}
+
+\subsubsection{Identification de la face externe}
+
+L’algorithme précédent nous donne l'ensemble des faces, y compris la face extérieure. Or, on cherche à savoir si notre base de cycles est composée de l'ensemble des faces à l'exception de la face extérieure. Il faut donc trouver cette face.
+
+Pour cela, on repère le sommet $v$ le plus à gauche (coordonnée $x$ minimale) du graphe. Ensuite, on prend son premier voisin dans la liste des voisins triés en fonction de l'angle polaire (que l'on note $u$) pour marquer l'arête $(v,u)$. Puis on prend le successeur de $v$ dans la liste des voisins triés de $u$ (que l'on note $w$) puis on marque $(u,w)$. On procède ainsi jusqu'à retomber sur $v$. L'ensemble des arêtes marquées forme alors la face extérieure.
+
+\section{Génération de permutations pour trouver plusieurs bases}
+
+\subsection{Motivation}
+
+Dans un graphe, il peut exister plusieurs chemins de même longueur entre deux sommets, et plusieurs cycles de même longueur. Le choix d'un chemin ou d'un cycle plutôt qu'un autre influence la base obtenue. Pour tenter d'explorer différentes bases de cycles minimales, on exécute l'algorithme de Horton avec différentes numérotations (permutations) des arêtes et des sommets tel que suggéré dans \cite{Vismara1997}.
+
+\subsection{Tables d'inversion et permutations}
+
+\begin{definition}[Table d'inversion]
+La table d'inversion d'une permutation $(\sigma(0),\ldots,\sigma(n-1))$ est le tableau $\text{inv}$ de taille $n$ tel que, avec $0 \leq i \leq n-1 $: \[ inv_i = \text{card}(\{ j > i \mid \text{pos}_\sigma(j) < \text{pos}_\sigma(i) \}) \]. Autrement dit, $inv_i$ est le nombre d'éléments plus grands que $i$ qui sont situés avant $i$ dans la permutation.
+\end{definition}
+
+La table d'inversion fournit une bijection entre les permutations de $n$ éléments et les séquences $(\text{inv}_0, \text{inv}_1, \ldots, \text{inv}_{n-1})$ vérifiant $0 \leq \text{inv}_i \leq n-1-i$ pour tout $i$ (chaque séquence correspondant à un tableau d'inversion). Cette représentation est commode pour énumérer toutes les permutations ou en générer une aléatoirement.
+
+Pour reconstruire une permutation à partir de sa table d'inversion, on prend un tableau résultat de $n$ cases vides. Ensuite, il faut prendre chaque élément $i$ et chercher la  $(inv_i+1)$-ème case vide dans le tableau résultat.
+
+Pour générer une table d'inversion aléatoire, on tire uniformément $\text{inv}_i \in \{0, \ldots, n-1-i\}$ pour chaque $i$.
+
+\subsection{Application à l'algorithme de Horton}
+
+Afin de trouver un maximum de base de cycles minimale, on fait tourner l'algorithme de Horton en générant une numérotation au hasard sur les sommets et sur les arêtes. L'algorithme de Horton est identique à celui vu précédemment, excepté pour la recherche de la plus courte chaîne et pour le tri des cycles. \\
+Lors du calcul des plus courts chemins, pour trouver la plus courte chaîne $P(u,v)$ entre chaque sommet $u$ et $v$, on utilise le même algorithme décrit dans la section \ref{pcc} en rajoutant une condition: si on trouve plusieurs voisins candidats, on prend celui qui a le plus petit numéro.
+Lors du tri des cycles, les égalités en longueur sont départagées sur l'ordre lexicographique basé sur les numéros donné par la permutation. \\
+Chaque fois que l'on fait tourner Horton avec une numérotation, on trouve une base de cycle. Cependant, il est possible que l'on ait déjà trouvé cette base avec une autre numérotation. À chaque itération de l'algorithme de Horton, on vérifie donc à la fin si la base de cycles que l'on trouve pour la numérotation que l'on vient de traiter a déjà été trouvée précédemment ou non. Si ce n'est pas le cas, on la garde.
+
+\subsection{Limite de l'algorithme de Horton}
+Après plusieurs tests, il a été observé que bien que l'algorithme de Horton puisse trouver plusieurs bases de cycles minimales, il ne trouve pas systématiquement toutes ces bases de cycles pour un graphe donné.\\
+Par exemple, pour le graphe \ref{horton-pas-face} (mais également pour le graphe \ref{carre_coupe}), l'algorithme de Horton ne trouve pas la base de cycle constituée par les faces internes du graphe. Il a donc fallu ajouter un algorithme vérifiant si $\ell(\mathcal{B}_{\text{faces}})$, avec $\mathcal{B}_{\text{faces}}$ la base de cycles constituée par l'ensemble des faces internes, était égal à une des bases minimale trouvée, et si oui, ajouter $\mathcal{B}_{\text{faces}}$ à l'ensemble des bases minimales trouvées.
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+    scale=1.5, 
+    every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
+
+        \node (A) at (2,0.3) {D};
+        \node (B) at (4,0) {B};
+        \node (C) at (2,-0.3) {E};
+        \node (D) at (0,0) {A};
+        \node (E) at (2,0.9) {C};
+        \node (F) at (2,-0.9) {F};
+
+        \draw (A) -- (B);
+        \draw (B) -- (C);
+        \draw (D) -- (A);
+        \draw (D) -- (C);
+        \draw (D) -- (E);
+        \draw (B) -- (E);
+        \draw (D) -- (F);
+        \draw (B) -- (F);
+    \end{tikzpicture}
+
+    \caption{Représentation d'un graphe planaire pour lequel Horton ne donne pas la base de cycle minimale constituée par les faces internes, peu importe la numérotation}
+    \label{horton-pas-face}
+\end{figure}
+
+\section{Résultats}
+
+\subsection{Protocole}
+
+Pour générer les premiers résultats, l'algorithme de Horton a été utilisé avec 1000 numérotations différentes pour les sommets et les arêtes. Des graphes de 4 à 20 sommets ont été générés avec un nombre d'arêtes aléatoire. Au total, 22 000 graphes ont été générés: 11000 planaires et 11000 planaires extérieurs.
+
+\subsection{Graphes planaires extérieurs}
+
+Tous les graphes planaires extérieurs qui ont été générés possédaient une seule base minimale de cycles qui correspondait à l'ensemble des faces du graphe. Ces résultats sont cohérents avec l'article \cite{Outerplanar} qui démontre que tous les graphes planaires extérieurs 2-connexes $G=(V,E)$ possèdent une unique base de cycles minimale contenant $2\lvert E \rvert -V$ arêtes. Or, les graphes planaires extérieurs générés lors de ce TER sont tous 2-connexes car créés à partir du graphe cycle $C_n$ qui est 2-connexe. De plus, le nombre d'arêtes théorique dans la base minimale correspond au nombre d'arêtes obtenu expérimentalement ce qui tend à montrer que l'algorithme a été correctement implémenté.
+
+\subsection{Graphes planaires quelconques}
+
+Pour les graphes planaires quelconques, une grande diversité en nombre de bases existe: pour 1000 numérotations différentes, le nombre de bases de cycles minimale distinctes varie entre 1 et 1000 (donc une par permutation dans certains cas). \\
+
+Cependant, au vu du grand nombre de graphes obtenus, il est impossible de tous les étudier. Un choix a donc été fait: celui de garder uniquement les graphes pour lesquels, dans chaque base de cycles minimale trouvée, au moins une arête appartenait à au moins 3 cycles de la base, et ce pour chaque base. En effet, une arête sépare exactement deux faces dans un graphe planaire. Donc, s'il existe dans chaque base une arête qui se trouve dans au moins 3 cycles, cela signifie qu'au moins un de ces trois cycles n'est pas une face et que, donc, aucune base de cycles minimales ne correspond à l'ensemble des faces. \\
+Des graphes répondant à cette condition ont été trouvés, ce qui signifie qu'il existe des graphes planaires pour lesquels l'ensemble des faces intérieures ne forme pas une base de cycle minimale. Certains de ces graphes sont présentés en annexe \ref{annexe}
+
+\subsection{Graphes planaires dont les faces ne forment pas la base de cycles minimale}
+
+Certains graphes planaires n'avaient aucune base dont l'ensemble des cycles correspondaient à l'ensemble des faces, même en tentant de bouger les sommets. Parmi ces graphes, tous ceux étudiés avaient un sous graphe tel que présenté dans la Figure \ref{homéomorphe-multigraphe}. Ce graphe comporte trois faces: $f_1=(e_1, e_3, e_7)$, $f_2=(e_2, e_4, e_7)$ et $f_3=(e_1,e_3,e_5,e_6)$. Il y a donc deux faces de 3 arêtes et une face de 4 arêtes, peu importe la disposition des sommets. La cardinalité de la base minimale de ce graphe est $\mu(G) = \lvert E \rvert -\lvert V \rvert +1 = 7 - 5 + 1 =3$. On cherche donc 3 cycles indépendants. Les 3 faces sont bien indépendantes mais la somme de leur longueur est de 10 arêtes. Or, si on remplace dans la base la face $f_3$ par le cycle $C_1=(D,B,C,D)$ de longueur 3, on obtient une base de cycles constituée de $f_1,f_2\text{ et } C_1$ qui sont bel et bien indépendants entre eux et dont la somme des longueurs est égale à 9.
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+    scale=1.5, 
+    every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
+
+        \node (A) at (2,1) {D};
+        \node (B) at (4,0) {B};
+        \node (C) at (2,-1) {E};
+        \node (D) at (0,0) {A};
+        \node (E) at (2,2) {C};
+
+        \draw (A) -- node[above, draw=none, fill=none, rectangle] {$e_1$} (B);
+        \draw (B) -- node[below right, draw=none, fill=none, rectangle] {$e_2$} (C);
+        \draw (D) -- node[above left, draw=none, fill=none, rectangle]  {$e_3$} (A);
+        \draw (D) -- node[below, draw=none, fill=none, rectangle] {$e_4$} (C);
+        \draw (D) -- node[above left, draw=none, fill=none, rectangle] {$e_5$} (E);
+        \draw (B) -- node[above right, draw=none, fill=none, rectangle] {$e_6$} (E);
+        \draw (B) -- node[above left, draw=none, fill=none, rectangle] {$e_7$} (D);
+    \end{tikzpicture}
+
+    \caption{Représentation d'un graphe planaire où les faces ne forment pas la base de cycles minimale}
+    \label{homéomorphe-multigraphe}
+\end{figure}
+
+\subsubsection{Qualification d'une famille de graphe dont l'ensemble des faces ne forment pas une base de cycles minimale}
+
+Soit un graphe $G=(V,E)$ ayant $x$ chaînes (avec $x \ge 4$) notées $P_1, P_2,\ldots, P_x$ allant d'un sommet $A$ à un sommet $B$. L'intersection de chacune de ces chaînes deux à deux donne l'ensemble $\{A,B\}$, c'est à dire que les seuls sommets communs à ces chaînes sont leurs extrémités soient les sommets $A$ et $B$. \\
+
+La chaîne $P_1$ a une longueur $n$ avec $n \ge 1$ et les autres chaînes $P_i$ ont une longueur $k_i$ avec $k_i > n$. Le graphe présenté à la figure \ref{homéomorphe-multigraphe} correspond à ces critères. Pour la démonstration, on supposera que $k_i= n+1$ pour tout $i$ allant de 2 à $x$. \\
+Une arête peut au maximum appartenir à deux faces or chacune des chaînes reliant $A$ et $B$ peut être considérée comme une arête après lissage. Donc chacune de ses chaînes peut au maximum appartenir à deux faces \\
+
+Si on souhaite former la base de cycles $\mathcal{B}_{{\text{faces}}}$ formée par toutes les faces du graphe tout en minimisant $\ell(\mathcal{B}_{{\text{faces}}})$, il faut donc que la chaîne la plus courte appartienne à deux faces intérieures du graphe. Ces deux faces seront constituées de $P_1$ et d'une autre chaîne $P_i$ et auront donc une longueur de $n+n+1=2n+1$. \\
+
+$x$ chaînes forment $x-1$ faces. Il reste donc $x-1-2=x-3$ faces à former. Ces dernières ne peuvent être composées que des deux chaînes $P_i$ et $P_j$ avec $i > j > 1$. Ces faces auront donc une longueur de $2(n+1) = 2n+2$. Si on forme une base de cycles avec ces faces,  $\ell(\mathcal{B}_{{\text{faces}}}) = 2(2n+1)+(x-3)(2n+2) = (4n+2)+(2nx+2x-6n-6) = 2nx+2x-2n-4 $. \\
+
+On tente de former une base que l'on nomme $\mathcal{B}_{{\text{optimal}}}$ avec $\ell(\mathcal{B}_{{\text{optimal}}}) < \ell(\mathcal{B}_{{\text{faces}}})$. On a $x$ chaînes qui forment $x-1$ faces intérieurs. Donc pour former une base, on a besoin de $x-1$ cycles indépendants (voir \ref{nb_cyclo}). On forme les cycles en combinant $P_1$ à $P_i$ pour $i$ allant de 2 à $x$. On a donc $x-1$ cycles de longueur $n + n + 1 = 2n+1$. On a donc $\ell(\mathcal{B}_{{\text{optimal}}}) = (x-1)(2n+1) = 2nx + x - 2n - 1$. \\
+
+Si on soustrait $\ell(\mathcal{B}_{{\text{optimal}}})$ à $\ell(\mathcal{B}_{{\text{faces}}})$ on obtient: $\ell(\mathcal{B}_{{\text{faces}}}) - \ell(\mathcal{B}_{{\text{optimal}}}) = (2nx+2x-2n-4) - ( 2nx + x - 2n - 1)=x-3$. Donc dès que $x > 3$, la différence entre $\ell(\mathcal{B}_{{\text{optimal}}})$ et $\ell(\mathcal{B}_{{\text{faces}}})$ devient positive. Donc $\ell(\mathcal{B}_{{\text{optimal}}}) < \ell(\mathcal{B}_{{\text{faces}}})$ pour $x > 3$. Donc quel que soit $n$, la base de cycles $\mathcal{B}_{{\text{optimal}}}$ contient moins d'arêtes que la base $\mathcal{B}_{{\text{faces}}}$. \\
+
+Soit $C$ l'ensemble de cycles tel que pour tout $C_i$ dans $C$, avec $i$ un entier compris entre 2 et $x$ inclus, $C_i = P_i \cup  P_1 $. Montrons que $C$ est une base de cycles. Le nombre cyclomatique est égal au nombre de faces intérieures. Or, pour les graphes décrits précédemment, le nombre de faces est égal à $x-1$ avec $x$ le nombre de chaînes. Or, en combinant les $x-1$ chaînes de longueur supérieure à $n-1$ avec celle de longueur $n$, on forme bel et bien $x-1$ cycles. \\
+
+De plus, on voit que chaque chemin $P_i \forall i \in 2..x$ est composé d'arêtes qui lui sont propres et qui ne sont présentes dans aucune autre chaîne. Le cycle $C_i$ composé de $P_i$ et $P_1$ est donc le seul cycle de la base à contenir les arêtes de la chaîne $P_i$. Il est donc impossible de trouver un cycle ayant des arêtes de $P_i$ par une combinaison des autres cycles. Donc les cycles sont bien indépendants entre eux. Or on a prouvé précédemment que $C$ comportait $x-1$ cycles donc d'après \ref{nb_cyclo}, $C$ forme bien une base de cycle. \\
+
+En conclusion, $\mathcal{B}_{{\text{faces}}}$ ne forme pas une base de cycle minimale pour aucun graphe ayant un graphe de l'ensemble décrit comme sous-graphe.
+
+\subsection{Limites}
+
+Plusieurs limites peuvent altérer les résultats obtenus. Le tout premier est l'automorphisme. En effet, il est possible qu'un graphe possède un automorphisme ce qui augmente le nombre de bases de cycles. Par exemple, en faisant tourner l'algorithme sur le graphe représenté à la Figure \ref{carre_coupe}, 2 bases de cycles minimales sont trouvées: l'une contenant le cycle $(e_1, e_2, e_3, e_4)$ et le cycle $(e_5, e_6, e_2, e_4)$ et l'autre contenant le cycle $(e_1, e_2, e_3, e_4)$ et le cycle $(e_5, e_6, e_1, e_3)$. Même si ces deux bases ne contiennent pas les mêmes arêtes, il s'agit d'un automorphisme. Pour aller plus loin, il faudrait donc vérifier que chaque base de cycles n'est pas un automorphisme d'une base déjà trouvée.
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+    scale=1.5, 
+    every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
+
+        \node (A) at (0,2) {A};
+        \node (B) at (2,2) {B};
+        \node (C) at (2,0) {C};
+        \node (D) at (0,0) {D};
+        \node (E) at (1,1) {E};
+
+        \draw (A) -- node[above, draw=none, fill=none, rectangle] {$e_1$} (B);
+        \draw (B) -- node[right, draw=none, fill=none, rectangle] {$e_2$} (C);
+        \draw (D) -- node[left, draw=none, fill=none, rectangle]  {$e_3$} (A);
+        \draw (D) -- node[below, draw=none, fill=none, rectangle] {$e_4$} (C);
+        \draw (D) -- node[above left, draw=none, fill=none, rectangle] {$e_5$} (E);
+        \draw (B) -- node[below right, draw=none, fill=none, rectangle] {$e_6$} (E);
+    \end{tikzpicture}
+
+    \caption{Représentation d'un graphe planaire à 5 sommets}
+    \label{carre_coupe}
+\end{figure}
+
+Une deuxième limite concerne la détection de faces. En effet, un algorithme a été implémenté pour déterminer si, pour un dessin donné, l'une des bases de cycles minimale correspond à l'ensemble des faces. Cependant, il est possible qu'une base de cycles soit trouvée, ne corresponde pas à l'ensemble des faces pour un dessin donné, mais qu'il existe un autre dessin où cette base correspondrait effectivement l'ensemble des faces. Pour vérifier cela, il faudrait implémenter un algorithme qui, étant donné un graphe $G=(V,E)$ et un ensemble de cycles, sache s'il existe un dessin de $G$ où l'ensemble de cycles peut former un ensemble de faces dans un dessin. Cependant, il semble qu'aucun algorithme répondant à ce problème n'existe actuellement. \\
+Malgré cela, cette limite n'est valable que pour les graphes qui ne sont pas connexe puis que le théorème de Whitney affirme que tous les graphes planaires 3-connexes admettent un unique plongement sur un plan.
+
+\section{Conclusion}
+
+Ce travail a permis de confirmer expérimentalement que pour les graphes planaires extérieurs 2-connexes, l'ensemble des faces internes constitue l'unique base de cycles minimale. \\
+Il existe une famille de graphes pour lesquels les faces ne forment pas la base de cycles minimale. Cependant, il se peut que d'autres familles existent, ou bien, que certaines contraintes données dans la caractérisation puissent être relâchées. \\
+Pour des travaux futurs, il serait intéressant de regarder le nombre de bases de cycles minimales lorsque les faces n'en sont pas une.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\newpage
+\begin{appendices}
+\label{annexe}
+\section{Exemples de graphes dont les faces internes de forment pas une base de cycle minimale}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+    scale=1.5, 
+    every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
+
+        \node (A) at (2,1) {D};
+        \node (B) at (4,0) {B};
+        \node (C) at (2,-1) {E};
+        \node (D) at (0,0) {A};
+        \node (E) at (2,2) {C};
+
+        \draw (A) -- (B);
+        \draw (B) -- (C);
+        \draw (D) -- (A);
+        \draw (D) -- (C);
+        \draw (D) -- (E);
+        \draw (B) -- (E);
+        \draw (B) -- (D);
+    \end{tikzpicture}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+    scale=1.5, 
+    every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
+
+        \node (A) at (2,1) {D};
+        \node (B) at (4,0) {B};
+        \node (C) at (2,-1) {E};
+        \node (D) at (0,0) {A};
+        \node (E) at (2,2) {C};
+        \node (F) at (2, -2) {F};
+
+        \draw (A) -- (B);
+        \draw (B) -- (C);
+        \draw (D) -- (A);
+        \draw (D) -- (C);
+        \draw (D) -- (E);
+        \draw (B) -- (E);
+        \draw (B) -- (D);
+        \draw (E) -- (A);
+        \draw (D) -- (F);
+        \draw (F) -- (B);
+    \end{tikzpicture}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+    scale=1.5, 
+    every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
+
+        \node (A) at (2,1) {D};
+        \node (B) at (5,1) {B};
+        \node (C) at (2,-0.5) {E};
+        \node (D) at (0,0) {A};
+        \node (E) at (2,3) {C};
+        \node (F) at (2, -1.5) {F};
+        \node (G) at (3, 1.7) {G};
+        \node (H) at (1, -0.75) {H};
+
+        \draw (A) -- (B);
+        \draw (B) -- (C);
+        \draw (D) -- (A);
+        \draw (D) -- (C);
+        \draw (D) -- (E);
+        \draw (B) -- (E);
+        \draw (B) -- (D);
+        \draw (E) -- (A);
+        \draw (D) -- (H);
+        \draw (F) -- (H);
+        \draw (F) -- (B);
+        \draw (C) -- (F);
+        \draw (G) -- (A);
+        \draw (G) -- (E);
+    \end{tikzpicture}
+\end{figure}
+
+\end{appendices}
+
+\end{document}
