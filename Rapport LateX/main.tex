@@ -72,7 +72,7 @@ Tous les algorithmes présentés dans ce TER ont été implémentés en C. Une c
 \section{Rappels théoriques et notation}
 
 \begin{definition}[Chaîne]
-Dans un graphe $G=(V,E)$, une chaîne $P$ est une suite d'arêtes $(e_0, e_1,\ldots,e_n-1)$ telle que chaque paire d'arêtes successives  $(e_i, e_{i+1}) \forall i \in 0..n-2$ partage un sommet en commun. La longueur de la chaîne est $n$.
+Dans un graphe $G=(V,E)$, une chaîne $P$ est une suite d'arêtes $(e_0, e_1,\ldots,e_n-1)$ telle que chaque paire d'arêtes successives  $(e_i, e_{i+1}) \forall i \in 0..n-2$ ont un sommet en commun. La longueur de la chaîne est $n$.
 \end{definition}
 
 \begin{definition}[Cycle]
@@ -115,28 +115,28 @@ La base de cycles minimale est la base dont la somme des longueurs des cycles la
 \begin{figure}[h]
     \centering
         \begin{tikzpicture}[scale=1.5, vertex/.style={draw, circle, fill=white, inner sep=2pt}]
-        
+
             \coordinate (A) at (0, 2);
             \coordinate (B) at (-2, -1);
             \coordinate (D) at (2, -1);
             \coordinate (C) at (0, 0);
-        
-            \fill[gray!20, even odd rule] 
-                (-3, -2) rectangle (3, 3) 
+
+            \fill[gray!20, even odd rule]
+                (-3, -2) rectangle (3, 3)
                 (A) -- (B) -- (D) -- cycle;
-        
-            \fill[red!30] (A) -- (D) -- (C) -- (B) -- cycle;  
-            \fill[blue!30] (B) -- (C) -- (D) -- cycle; 
-        
+
+            \fill[red!30] (A) -- (D) -- (C) -- (B) -- cycle;
+            \fill[blue!30] (B) -- (C) -- (D) -- cycle;
+
             \draw[thick] (A) -- (B) -- (D) -- cycle;
             \draw[thick] (B) -- (C);
             \draw[thick] (C) -- (D);
-        
+
             \node[vertex] at (A) {A};
             \node[vertex] at (B) {B};
             \node[vertex] at (C) {C};
             \node[vertex] at (D) {D};
-        
+
             \node at (0, 0.8) {$F_1$};
             \node at (0, -0.6) {$F_2$};
             \node at (-2.5, 2.5) {$F_{\infty}$};
@@ -156,13 +156,13 @@ La base de cycles minimale est la base dont la somme des longueurs des cycles la
     \coordinate (v\i) at ({60*(\i-1)}:1);
 }
 
-\fill[gray!20, even odd rule] 
-                (-1.5, -1.5) rectangle (1.5, 1.5) 
+\fill[gray!20, even odd rule]
+                (-1.5, -1.5) rectangle (1.5, 1.5)
                 (v1) -- (v2) -- (v3) -- (v4) -- (v5) -- (v6) -- cycle;
-        
-\fill[red!30] (v3) -- (v4) -- (v5) -- cycle;  
+
+\fill[red!30] (v3) -- (v4) -- (v5) -- cycle;
 \fill[blue!30] (v3) -- (v2) -- (v1) -- cycle;
-\fill[green!30] (v6) -- (v5) -- (v1) -- cycle; 
+\fill[green!30] (v6) -- (v5) -- (v1) -- cycle;
 
 \foreach \i in {1,...,6} {
     \node[vertex] (v\i) at ({60*(\i-1)}:1) {\i};
@@ -317,7 +317,7 @@ Par exemple, pour le graphe \ref{horton-pas-face} (mais également pour le graph
 \begin{figure}[h]
     \centering
     \begin{tikzpicture}[
-    scale=1.5, 
+    scale=1.5,
     every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
 
         \node (A) at (2,0.3) {D};
@@ -355,7 +355,7 @@ Tous les graphes planaires extérieurs qui ont été générés possédaient une
 
 Pour les graphes planaires quelconques, une grande diversité en nombre de bases existe: pour 1000 numérotations différentes, le nombre de bases de cycles minimale distinctes varie entre 1 et 1000 (donc une par permutation dans certains cas). \\
 
-Cependant, au vu du grand nombre de graphes obtenus, il est impossible de tous les étudier. Un choix a donc été fait: celui de garder uniquement les graphes pour lesquels, dans chaque base de cycles minimale trouvée, au moins une arête appartenait à au moins 3 cycles de la base, et ce pour chaque base. En effet, une arête sépare exactement deux faces dans un graphe planaire. Donc, s'il existe dans chaque base une arête qui se trouve dans au moins 3 cycles, cela signifie qu'au moins un de ces trois cycles n'est pas une face et que, donc, aucune base de cycles minimales ne correspond à l'ensemble des faces. \\
+Cependant, au vu du grand nombre de graphes obtenus, il est impossible de tous les étudier. Un choix a donc été fait: celui de garder uniquement les graphes pour lesquels, dans chaque base de cycles minimale trouvée, au moins une arête appartenait à au moins 3 cycles de la base, et ce pour chaque base. En effet, une arête sépare exactement deux faces dans un graphe planaire. Donc, s'il existe dans chaque base une arête qui se trouve dans au moins 3 cycles, cela signifie qu'au moins l'un de ces trois cycles n'est pas une face et que, donc, aucune base de cycles minimales ne correspond à l'ensemble des faces. \\
 Des graphes répondant à cette condition ont été trouvés, ce qui signifie qu'il existe des graphes planaires pour lesquels l'ensemble des faces intérieures ne forme pas une base de cycle minimale. Certains de ces graphes sont présentés en annexe \ref{annexe}
 
 \subsection{Graphes planaires dont les faces ne forment pas la base de cycles minimale}
@@ -365,7 +365,7 @@ Certains graphes planaires n'avaient aucune base dont l'ensemble des cycles corr
 \begin{figure}[h]
     \centering
     \begin{tikzpicture}[
-    scale=1.5, 
+    scale=1.5,
     every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
 
         \node (A) at (2,1) {D};
@@ -389,24 +389,26 @@ Certains graphes planaires n'avaient aucune base dont l'ensemble des cycles corr
 
 \subsubsection{Qualification d'une famille de graphe dont l'ensemble des faces ne forment pas une base de cycles minimale}
 
-Soit un graphe $G=(V,E)$ ayant $x$ chaînes (avec $x \ge 4$) notées $P_1, P_2,\ldots, P_x$ allant d'un sommet $A$ à un sommet $B$. L'intersection de chacune de ces chaînes deux à deux donne l'ensemble $\{A,B\}$, c'est à dire que les seuls sommets communs à ces chaînes sont leurs extrémités soient les sommets $A$ et $B$. \\
+Soit le graphe non pondéré $G=(V,E)$ ayant 4 chaînes notées $P_1, P_2, P_3, P_4$ allant d'un sommet $A$ à un sommet $B$, avec $A$ et $B$ deux sommets distincts. L'intersection de chacune de ces chaînes deux à deux donne l'ensemble $\{A,B\}$, c'est à dire que les seuls sommets communs à ces chaînes sont leurs extrémités, soient les sommets $A$ et $B$. \\
 
-La chaîne $P_1$ a une longueur $n$ avec $n \ge 1$ et les autres chaînes $P_i$ ont une longueur $k_i$ avec $k_i > n$. Le graphe présenté à la figure \ref{homéomorphe-multigraphe} correspond à ces critères. Pour la démonstration, on supposera que $k_i= n+1$ pour tout $i$ allant de 2 à $x$. \\
-Une arête peut au maximum appartenir à deux faces or chacune des chaînes reliant $A$ et $B$ peut être considérée comme une arête après lissage. Donc chacune de ses chaînes peut au maximum appartenir à deux faces \\
+La chaîne $P_1$ a une longueur $n$ avec $n \ge 1$ et les autres chaînes $P_i$ ont une longueur $k_i$ avec $k_i > n$. On considère que $n < k_2 \le k_3 \le k4$ Le graphe présenté à la figure \ref{homéomorphe-multigraphe} correspond à ces critères. \\
+Une arête peut au maximum appartenir à deux faces, or, chacune des chaînes reliant $A$ et $B$ peut être considérée comme une arête après lissage. Donc chacune de ces chaînes peut au maximum appartenir à deux faces. \\
 
-Si on souhaite former la base de cycles $\mathcal{B}_{{\text{faces}}}$ formée par toutes les faces du graphe tout en minimisant $\ell(\mathcal{B}_{{\text{faces}}})$, il faut donc que la chaîne la plus courte appartienne à deux faces intérieures du graphe. Ces deux faces seront constituées de $P_1$ et d'une autre chaîne $P_i$ et auront donc une longueur de $n+n+1=2n+1$. \\
+Si on souhaite former la base de cycles $\mathcal{B}_{{\text{faces}}}$ formée par toutes les faces intérieures du graphe tout en minimisant $\ell(\mathcal{B}_{{\text{faces}}})$, il faut donc que les deux chaînes les plus longues, $P_3$ et $P_4$ fassent partie de la face extérieure afin de les considérer une seule fois. $P_1$ et $P_2$ sont donc placées à \og l'intérieur \fg du graphe et sont comptabilisées deux fois. Ainsi, peu importe la disposition de $P_1$ et $P_2$, $\ell(\mathcal{B}_{{\text{faces}}}) = 2n + 2k_2 + k3 + k4 $. \\
 
-$x$ chaînes forment $x-1$ faces. Il reste donc $x-1-2=x-3$ faces à former. Ces dernières ne peuvent être composées que des deux chaînes $P_i$ et $P_j$ avec $i > j > 1$. Ces faces auront donc une longueur de $2(n+1) = 2n+2$. Si on forme une base de cycles avec ces faces,  $\ell(\mathcal{B}_{{\text{faces}}}) = 2(2n+1)+(x-3)(2n+2) = (4n+2)+(2nx+2x-6n-6) = 2nx+2x-2n-4 $. \\
+On tente de former une base que l'on nomme $\mathcal{B}_{{\text{optimal}}}$ avec $\ell(\mathcal{B}_{{\text{optimal}}}) < \ell(\mathcal{B}_{{\text{faces}}})$. $G$ possède 4 chaînes qui forment 3 faces intérieures. Donc pour former une base, on a besoin de 3 cycles indépendants (voir \ref{nb_cyclo}). On forme les cycles en combinant $P_1$ à $P_i$ pour $i$ allant de 2 à 4 inclus. On a donc $\ell(\mathcal{B}_{{\text{optimal}}}) = 3n + k_2 + k_3 + k_4$. \\
+On pose:
+\[ \ell(\mathcal{B}_{{\text{faces}}}) - \ell(\mathcal{B}_{{\text{optimal}}}) = (2n + 2k_2 + k3 + k4) - (3n + k_2 + k_3 + k_4) = k_2 - n \]
 
-On tente de former une base que l'on nomme $\mathcal{B}_{{\text{optimal}}}$ avec $\ell(\mathcal{B}_{{\text{optimal}}}) < \ell(\mathcal{B}_{{\text{faces}}})$. On a $x$ chaînes qui forment $x-1$ faces intérieurs. Donc pour former une base, on a besoin de $x-1$ cycles indépendants (voir \ref{nb_cyclo}). On forme les cycles en combinant $P_1$ à $P_i$ pour $i$ allant de 2 à $x$. On a donc $x-1$ cycles de longueur $n + n + 1 = 2n+1$. On a donc $\ell(\mathcal{B}_{{\text{optimal}}}) = (x-1)(2n+1) = 2nx + x - 2n - 1$. \\
+Or $k_2 > n$ donc $k_2 - n > 0$ et donc $\ell(\mathcal{B}_{{\text{faces}}}) > \ell(\mathcal{B}_{{\text{optimal}}})$ quand $k_i > n$ pour $ 2 \le i \le 4$
 
-Si on soustrait $\ell(\mathcal{B}_{{\text{optimal}}})$ à $\ell(\mathcal{B}_{{\text{faces}}})$ on obtient: $\ell(\mathcal{B}_{{\text{faces}}}) - \ell(\mathcal{B}_{{\text{optimal}}}) = (2nx+2x-2n-4) - ( 2nx + x - 2n - 1)=x-3$. Donc dès que $x > 3$, la différence entre $\ell(\mathcal{B}_{{\text{optimal}}})$ et $\ell(\mathcal{B}_{{\text{faces}}})$ devient positive. Donc $\ell(\mathcal{B}_{{\text{optimal}}}) < \ell(\mathcal{B}_{{\text{faces}}})$ pour $x > 3$. Donc quel que soit $n$, la base de cycles $\mathcal{B}_{{\text{optimal}}}$ contient moins d'arêtes que la base $\mathcal{B}_{{\text{faces}}}$. \\
+Soit $C$ l'ensemble de cycles tel que, pour tout $C_i$ dans $C$, avec $i$ un entier compris entre 2 et $x$ inclus, $C_i = P_i \cup  P_1 $. Montrons que $C$ est une base de cycles. Le nombre cyclomatique est égal au nombre de faces intérieures. Or, pour le graphe décrit précédemment, le nombre de faces est égal à 3. Or, en combinant les 3 chaînes de longueur supérieure à $n$ avec celle de longueur $n$, on forme bel et bien 3 cycles. \\
 
-Soit $C$ l'ensemble de cycles tel que pour tout $C_i$ dans $C$, avec $i$ un entier compris entre 2 et $x$ inclus, $C_i = P_i \cup  P_1 $. Montrons que $C$ est une base de cycles. Le nombre cyclomatique est égal au nombre de faces intérieures. Or, pour les graphes décrits précédemment, le nombre de faces est égal à $x-1$ avec $x$ le nombre de chaînes. Or, en combinant les $x-1$ chaînes de longueur supérieure à $n-1$ avec celle de longueur $n$, on forme bel et bien $x-1$ cycles. \\
+De plus, on voit que chaque chaîne $P_i$ est composée d'arêtes qui lui sont propres et qui ne sont présentes dans aucune autre chaîne. Le cycle $C_i$ composé de $P_i$ et $P_1$, avec $1 < i \le 3 $ est donc le seul cycle de la base à contenir les arêtes de la chaîne $P_i$. Il est donc impossible de trouver un cycle ayant des arêtes de $P_i$ par une combinaison des autres cycles. Donc les cycles sont bien indépendants entre eux. Or $C$ contient 3 cycles donc d'après \ref{nb_cyclo}, $C$ forme bien une base de cycle. \\
 
-De plus, on voit que chaque chemin $P_i \forall i \in 2..x$ est composé d'arêtes qui lui sont propres et qui ne sont présentes dans aucune autre chaîne. Le cycle $C_i$ composé de $P_i$ et $P_1$ est donc le seul cycle de la base à contenir les arêtes de la chaîne $P_i$. Il est donc impossible de trouver un cycle ayant des arêtes de $P_i$ par une combinaison des autres cycles. Donc les cycles sont bien indépendants entre eux. Or on a prouvé précédemment que $C$ comportait $x-1$ cycles donc d'après \ref{nb_cyclo}, $C$ forme bien une base de cycle. \\
+En conclusion, $\mathcal{B}_{{\text{faces}}}$ ne forme pas une base de cycle minimale pour aucun graphe ayant le graphe $G$ décrit comme sous-graphe induit.
 
-En conclusion, $\mathcal{B}_{{\text{faces}}}$ ne forme pas une base de cycle minimale pour aucun graphe ayant un graphe de l'ensemble décrit comme sous-graphe.
+$\mathcal{B}_{{\text{optimal}}}$ est la seule base minimale de $G$. Cependant, si $G$ est un sous-graphe induit d'un graphe $F$, il est possible qu'il existe plusieurs bases minimales pour $F$. Par exemple, pour le graphe \ref{15-bases} présenté en annexe, on trouve 15 bases de cycles distinctes après avoir fait tourné l'algorithme de Horton avec 100 000 numérotations aléatoires
 
 \subsection{Limites}
 
@@ -415,7 +417,7 @@ Plusieurs limites peuvent altérer les résultats obtenus. Le tout premier est l
 \begin{figure}[h]
     \centering
     \begin{tikzpicture}[
-    scale=1.5, 
+    scale=1.5,
     every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
 
         \node (A) at (0,2) {A};
@@ -437,13 +439,13 @@ Plusieurs limites peuvent altérer les résultats obtenus. Le tout premier est l
 \end{figure}
 
 Une deuxième limite concerne la détection de faces. En effet, un algorithme a été implémenté pour déterminer si, pour un dessin donné, l'une des bases de cycles minimale correspond à l'ensemble des faces. Cependant, il est possible qu'une base de cycles soit trouvée, ne corresponde pas à l'ensemble des faces pour un dessin donné, mais qu'il existe un autre dessin où cette base correspondrait effectivement l'ensemble des faces. Pour vérifier cela, il faudrait implémenter un algorithme qui, étant donné un graphe $G=(V,E)$ et un ensemble de cycles, sache s'il existe un dessin de $G$ où l'ensemble de cycles peut former un ensemble de faces dans un dessin. Cependant, il semble qu'aucun algorithme répondant à ce problème n'existe actuellement. \\
-Malgré cela, cette limite n'est valable que pour les graphes qui ne sont pas connexe puis que le théorème de Whitney affirme que tous les graphes planaires 3-connexes admettent un unique plongement sur un plan.
+Malgré cela, cette limite n'est valable que pour les graphes qui ne sont pas 3-connexe puisque le théorème de Whitney affirme que tous les graphes planaires 3-connexes admettent un unique plongement dans un plan.
 
 \section{Conclusion}
 
 Ce travail a permis de confirmer expérimentalement que pour les graphes planaires extérieurs 2-connexes, l'ensemble des faces internes constitue l'unique base de cycles minimale. \\
-Il existe une famille de graphes pour lesquels les faces ne forment pas la base de cycles minimale. Cependant, il se peut que d'autres familles existent, ou bien, que certaines contraintes données dans la caractérisation puissent être relâchées. \\
-Pour des travaux futurs, il serait intéressant de regarder le nombre de bases de cycles minimales lorsque les faces n'en sont pas une.
+De plus, il a été démontré qu'il existe une famille de graphes pour lesquels les faces ne forment pas la base de cycles minimale. Cependant, il se peut que d'autres familles existent. \\
+
 
 \bibliographystyle{plain}
 \bibliography{refs}
@@ -451,19 +453,19 @@ Pour des travaux futurs, il serait intéressant de regarder le nombre de bases d
 \newpage
 \begin{appendices}
 \label{annexe}
-\section{Exemples de graphes dont les faces internes de forment pas une base de cycle minimale}
+\section{Exemples de graphes dont les faces internes ne forment pas une base de cycle minimale}
 
 \begin{figure}[h]
     \centering
     \begin{tikzpicture}[
-    scale=1.5, 
+    scale=1.5,
     every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
 
-        \node (A) at (2,1) {D};
+        \node (A) at (2,0.5) {D};
         \node (B) at (4,0) {B};
-        \node (C) at (2,-1) {E};
+        \node (C) at (2,-0.5) {E};
         \node (D) at (0,0) {A};
-        \node (E) at (2,2) {C};
+        \node (E) at (2,1.2) {C};
 
         \draw (A) -- (B);
         \draw (B) -- (C);
@@ -473,20 +475,22 @@ Pour des travaux futurs, il serait intéressant de regarder le nombre de bases d
         \draw (B) -- (E);
         \draw (B) -- (D);
     \end{tikzpicture}
+    \label{}
+    \caption{}
 \end{figure}
 
 \begin{figure}[h]
     \centering
     \begin{tikzpicture}[
-    scale=1.5, 
+    scale=1.5,
     every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
 
-        \node (A) at (2,1) {D};
+        \node (A) at (2,0.5) {D};
         \node (B) at (4,0) {B};
-        \node (C) at (2,-1) {E};
+        \node (C) at (2,-0.5) {E};
         \node (D) at (0,0) {A};
-        \node (E) at (2,2) {C};
-        \node (F) at (2, -2) {F};
+        \node (E) at (2,1.2) {C};
+        \node (F) at (2, -1) {F};
 
         \draw (A) -- (B);
         \draw (B) -- (C);
@@ -499,12 +503,14 @@ Pour des travaux futurs, il serait intéressant de regarder le nombre de bases d
         \draw (D) -- (F);
         \draw (F) -- (B);
     \end{tikzpicture}
+    \label{}
+    \caption{}
 \end{figure}
 
 \begin{figure}[h]
     \centering
     \begin{tikzpicture}[
-    scale=1.5, 
+    scale=1.5,
     every node/.style={circle, fill=none, draw=black, inner sep=2.5pt}]
 
         \node (A) at (2,1) {D};
@@ -531,6 +537,40 @@ Pour des travaux futurs, il serait intéressant de regarder le nombre de bases d
         \draw (G) -- (A);
         \draw (G) -- (E);
     \end{tikzpicture}
+    \label{}
+    \caption{}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[scale=1.2, vertex/.style={draw, circle, fill=white, inner sep=2pt, minimum size=6mm}]
+
+        \node[vertex] (3) at (0, 2.5) {3};
+        \node[vertex] (2) at (6, 5) {2};
+        \node[vertex] (5) at (8.5, 7.5) {5};
+        \node[vertex] (1) at (7.2, 3.8) {1};
+        \node[vertex] (4) at (5.7, 2.3) {4};
+        \node[vertex] (6) at (7.3, 1.5) {6};
+        \node[vertex] (0) at (9, 0) {0};
+
+        \draw (3) -- (5);
+        \draw (3) -- (2);
+        \draw (3) -- (1);
+        \draw (3) -- (4);
+        \draw (3) -- (0);
+        \draw (5) -- (2);
+        \draw (5) -- (1);
+        \draw (5) -- (0);
+        \draw (2) -- (1);
+        \draw (1) -- (4);
+        \draw (1) -- (6);
+        \draw (1) -- (0);
+        \draw (4) -- (6);
+        \draw (6) -- (0);
+
+    \end{tikzpicture}
+    \caption{}
+    \label{15-bases}
 \end{figure}
 
 \end{appendices}
