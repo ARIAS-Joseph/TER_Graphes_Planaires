@@ -3,36 +3,17 @@
 Projet TER - Les faces d'un graphe planaire forment-elles toujours une base minimale de cycles ? Etudes des bases de cycles minimales dans les graphes planaires.
 ---
 
-Ce projet a été réalisé dans le cadre du TER du Master 1 Algorithmique et Modélisation à l'Interface des Sciences (AMIS) de l'Université de Versailles Saint-Quentin-en-Yvelines (UVSQ) en 2026, sous la supervision de Dominique BARTH et Chloé GODET.
+Ce projet a été réalisé dans le cadre du TER du Master 1 Algorithmique et Modélisation à l'Interface des Sciences (AMIS) de l'Université de Versailles Saint-Quentin-en-Yvelines (UVSQ) en 2026, sous la supervision de Dominique BARTH et Chloé GODET. Le rapport issu de ce TER est présent dans le dossier `Rapport LateX` et est rédigé en français. Il détaille le contexte, les motivations, méthodes, résultats et conclusions de ce projet.
 
 ---
 
 ## Table des matières
 
-1. [Contexte mathématique](#contexte-mathématique)
-2. [Structure du projet](#structure-du-projet)
-3. [Algorithme de Horton](#algorithme-de-horton)
-4. [Visualisateur interactif](#visualisateur-interactif)
-5. [Lancer le visualisateur](#lancer-le-visualisateur)
-6. [Compiler depuis les sources](#compiler-depuis-les-sources)
-7. [Étude statistique](#étude-statistique-studyc)
-8. [Format de fichier graphe](#format-de-fichier-graphe)
-9. [Architecture du code](#architecture-du-code)
-
----
-
-## Contexte mathématique
-
-Soit $G = (V, E)$ un graphe connexe non orienté, non pondéré, sans boucle et sans multi-arête. L'espace des cycles de $G$ est un espace vectoriel sur $\mathbb{F}_2$ de dimension $\mu = |E| - |V| + 1$ (le nombre cyclomatique). Une base minimale de cycles est une base de cet espace dont la somme des longueurs de cycles est minimale. Par base, on entend un ensemble de cycles indépendants qui génèrent tous les cycles du graphe et qui ne peuvent être générés par d'autres cycles de la base.
-
-Pour un graphe planaire, la décomposition en faces fournit naturellement $\mu$ cycles (les faces intérieures). La question centrale de ce projet est la suivante: l'ensemble des faces intérieures d'un graphe planaire constitue-t-il toujours une base minimale de cycles ?
-
-Pour répondre à cette question, le projet :
-
-1. Génère des graphes planaires et planaires extérieurs aléatoires.
-2. Fournit toutes les bases minimales distinctes trouvées via l'algorithme de Horton avec différentes numérotations pour les sommets et les arêtes.
-3. Vérifie si l'une de ces bases correspond exactement aux faces intérieures du graphe.
-4. Visualise les résultats et permet de modifier/créer des graphes planaires de façon interactive.
+1. [Visualisateur interactif](#visualisateur-interactif)
+2. [Lancer le visualisateur](#lancer-le-visualisateur)
+3. [Compiler depuis les sources](#compiler-depuis-les-sources)
+4. [Étude de masse](#étude-statistique-studyc)
+5. [Format de fichier graphe](#format-de-fichier-graphe)
 
 ---
 
@@ -112,7 +93,7 @@ Cela génère `visualizer/graph_visualizer_wasm.js` et `visualizer/graph_visuali
 
 ---
 
-## Étude statistique
+## Étude de masse
 
 `study.c` est un programme en ligne de commande (Windows, utilise `_mkdir`) qui génère des milliers de graphes planaires aléatoires et enregistre les résultats dans `result.csv` :
 
