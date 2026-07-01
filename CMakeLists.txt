@@ -5,11 +5,11 @@ set(CMAKE_C_STANDARD 17)
 
 set(COMMON_SOURCES
         graph.c
-        graph.h
         permutations.c
-        permutations.h
         planar_graph_creator.c
-        planar_graph_creator.h
+        cycle_graph.c
+        planar_map_generator.c
+        dif_faces_vertices.c
 )
 
 add_executable(TER_Graphes_Planaires
@@ -29,8 +29,25 @@ endif()
 add_executable(graph_tool
         ${COMMON_SOURCES}
         study.c
+        cycle_graph.c
+        cycle_graph.h
+        planar_map_generator.c
+        planar_generator_test.c
+        dif_faces_vertices.c
 )
 target_link_libraries(graph_tool m)
+
+add_executable(test_dfs
+        ${COMMON_SOURCES}
+        planar_generator_test.c
+)
+target_link_libraries(test_dfs m)
+
+add_executable(dif_faces
+        ${COMMON_SOURCES}
+        dif_faces_vertices.c
+)
+target_link_libraries(dif_faces m)
 
 set(VISUALISEUR_DIR "${CMAKE_SOURCE_DIR}/visualizer")
 

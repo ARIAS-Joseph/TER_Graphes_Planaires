@@ -19,9 +19,10 @@ static void invalidate_bases(Graph *g) {
     if (!g) return;
 
     /* Free all minimal cycle bases */
+    /* invalidate_bases() */
     if (g->minimals_basis) {
         for (int b = 0; b < g->nb_minimal_bases; b++) {
-            for (int i = 0; i < g->basis_dimension; i++) {
+            for (int i = 0; i < g->minimals_basis[b].dimension; i++) {   /* FIX */
                 free(g->minimals_basis[b].cycles[i].edges_ids);
                 free(g->minimals_basis[b].cycles[i].edges_labels);
                 free(g->minimals_basis[b].cycles[i].vertices_ids);
@@ -59,7 +60,7 @@ static void invalidate_bases(Graph *g) {
  */
 Graph *create_graph() {
     Graph *graph = calloc(1, sizeof(Graph));
-    if (!graph) { perror("create_graph: graph"); exit(1); }
+    if (!graph) { perror("create_graph: graph"); exit(1);}
 
     graph->capacity_vertices = 4;
     graph->vertices = malloc(graph->capacity_vertices * sizeof(Vertex));
@@ -129,7 +130,7 @@ void delete_graph(Graph *g) {
     free(g->edges);
 
     if (g->neighbors) {
-        for (int i = 0; i < g->nb_vertex; i++) {
+        for (int i = 0; i < g->nb_vertices; i++) {
             free(g->neighbors[i].neighbors);
             free(g->neighbors[i].angles);
         }
@@ -159,9 +160,10 @@ void delete_graph(Graph *g) {
         free(g->horton_cycles);
     }
 
+    /* invalidate_bases() */
     if (g->minimals_basis) {
         for (int b = 0; b < g->nb_minimal_bases; b++) {
-            for (int i = 0; i < g->basis_dimension; i++) {
+            for (int i = 0; i < g->minimals_basis[b].dimension; i++) {   /* FIX */
                 free(g->minimals_basis[b].cycles[i].edges_ids);
                 free(g->minimals_basis[b].cycles[i].edges_labels);
                 free(g->minimals_basis[b].cycles[i].vertices_ids);
@@ -169,6 +171,9 @@ void delete_graph(Graph *g) {
             free(g->minimals_basis[b].cycles);
         }
         free(g->minimals_basis);
+        g->minimals_basis = NULL;
+        g->nb_minimal_bases = 0;
+        g->basis_dimension = 0;
     }
 
     free(g);
@@ -200,12 +205,12 @@ void save_graph(const Graph *g, const char *filename) {
     }
 
     /* Build remapping tables */
-    int *vertices_id_map = calloc(g->nb_vertex, sizeof(int));
+    int *vertices_id_map = calloc(g->nb_vertices, sizeof(int));
     int *edges_id_map = calloc(g->nb_edges,  sizeof(int));
     if (!vertices_id_map || !edges_id_map) { perror("save_graph: maps"); exit(1); }
 
     int nb_v = 0, nb_e = 0;
-    for (int i = 0; i < g->nb_vertex; i++)
+    for (int i = 0; i < g->nb_vertices; i++)
         vertices_id_map[i] = g->vertices[i].deleted ? -1 : nb_v++;
     for (int i = 0; i < g->nb_edges; i++)
         edges_id_map[i] = g->edges[i].deleted ? -1 : nb_e++;
@@ -221,7 +226,7 @@ void save_graph(const Graph *g, const char *filename) {
         fprintf(file, "%d %d 0 0 -1 0\n", nb_v, nb_e);
     }
 
-    for (int i = 0; i < g->nb_vertex; i++) {
+    for (int i = 0; i < g->nb_vertices; i++) {
         if (g->vertices[i].deleted) continue;
         fprintf(file, "%d %lf %lf\n", vertices_id_map[i], g->vertices[i].x, g->vertices[i].y);
     }
@@ -236,7 +241,7 @@ void save_graph(const Graph *g, const char *filename) {
 
     if (g->minimals_basis) {
         for (int b = 0; b < g->nb_minimal_bases; b++) {
-            for (int i = 0; i < g->basis_dimension; i++) {
+            for (int i = 0; i < g->minimals_basis[b].dimension; i++) {
                 for (int e = 0; e < g->nb_edges; e++) {
                     if (g->edges[e].deleted) continue;
                     if (g->minimals_basis[b].cycles[i].edges_ids[e] == 1)
@@ -387,7 +392,7 @@ void load_graph(Graph *g, const char *filename) {
 void create_vertex(Graph *g, const double x, const double y) {
     invalidate_bases(g);
 
-    if (g->nb_vertex == g->capacity_vertices) {
+    if (g->nb_vertices == g->capacity_vertices) {
         const int old_cap = g->capacity_vertices;
         g->capacity_vertices *= 2;
         const int new_cap = g->capacity_vertices;
@@ -413,9 +418,9 @@ void create_vertex(Graph *g, const double x, const double y) {
         g->faces = temp_faces;
     }
 
-    const int id = g->nb_vertex;
+    const int id = g->nb_vertices;
     g->vertices[id] = (Vertex){x, y, id, 0, 0};
-    g->nb_vertex++;
+    g->nb_vertices++;
 }
 
 /**
@@ -498,18 +503,23 @@ static void delete_edge_impl(Graph *g, const int e_id) {
     /* Remove v from u's neighbour list */
     for (int i = 0; i < g->neighbors[u].count; i++) {
         if (g->neighbors[u].neighbors[i] == v) {
-            const int last = --g->neighbors[u].count;
-            g->neighbors[u].neighbors[i] = g->neighbors[u].neighbors[last];
-            g->neighbors[u].angles[i]    = g->neighbors[u].angles[last];
+            for (int j = i; j < g->neighbors[u].count - 1; j++) {
+                g->neighbors[u].neighbors[j] = g->neighbors[u].neighbors[j + 1];
+                g->neighbors[u].angles[j] = g->neighbors[u].angles[j + 1];
+            }
+            g->neighbors[u].count--;
             break;
         }
     }
+
     /* Remove u from v's neighbour list */
     for (int i = 0; i < g->neighbors[v].count; i++) {
         if (g->neighbors[v].neighbors[i] == u) {
-            const int last = --g->neighbors[v].count;
-            g->neighbors[v].neighbors[i] = g->neighbors[v].neighbors[last];
-            g->neighbors[v].angles[i] = g->neighbors[v].angles[last];
+            for (int j = i; j < g->neighbors[v].count - 1; j++) {
+                g->neighbors[v].neighbors[j] = g->neighbors[v].neighbors[j + 1];
+                g->neighbors[v].angles[j] = g->neighbors[v].angles[j + 1];
+            }
+            g->neighbors[v].count--;
             break;
         }
     }
@@ -528,12 +538,12 @@ void compact_graph(Graph *g) {
     if (!g) return;
 
     /* Build remapping tables */
-    int *vmap = malloc(g->nb_vertex * sizeof(int));
+    int *vmap = malloc(g->nb_vertices * sizeof(int));
     int *emap = malloc(g->nb_edges  * sizeof(int));
     if (!vmap || !emap) { free(vmap); free(emap); perror("compact_graph: maps"); exit(1); }
 
     int new_nv = 0;
-    for (int i = 0; i < g->nb_vertex; i++)
+    for (int i = 0; i < g->nb_vertices; i++)
         vmap[i] = g->vertices[i].deleted ? -1 : new_nv++;
 
     int new_ne = 0;
@@ -541,19 +551,19 @@ void compact_graph(Graph *g) {
         emap[i] = g->edges[i].deleted ? -1 : new_ne++;
 
     /* Nothing to compact */
-    if (new_nv == g->nb_vertex && new_ne == g->nb_edges) {
+    if (new_nv == g->nb_vertices && new_ne == g->nb_edges) {
         free(vmap); free(emap);
         return;
     }
 
     /* Compact vertices, update id and label */
-    for (int i = 0; i < g->nb_vertex; i++) {
+    for (int i = 0; i < g->nb_vertices; i++) {
         if (vmap[i] < 0) continue;
         g->vertices[vmap[i]] = g->vertices[i];
         g->vertices[vmap[i]].id = vmap[i];
         g->vertices[vmap[i]].label = vmap[i];
     }
-    g->nb_vertex = new_nv;
+    g->nb_vertices = new_nv;
 
     /* Compact edges, remap vertices and id */
     for (int i = 0; i < g->nb_edges; i++) {
@@ -587,7 +597,7 @@ void compact_graph(Graph *g) {
             Neighbor_list *nl = &g->neighbors[src];
             if (nl->count == nl->capacity) {
                 nl->capacity = nl->capacity == 0 ? 4 : nl->capacity * 2;
-                int    *tn = realloc(nl->neighbors, nl->capacity * sizeof(int));
+                int *tn = realloc(nl->neighbors, nl->capacity * sizeof(int));
                 double *ta = realloc(nl->angles,    nl->capacity * sizeof(double));
                 if (!tn || !ta) { perror("compact_graph: neighbor realloc"); exit(1); }
                 nl->neighbors = tn;
@@ -598,11 +608,11 @@ void compact_graph(Graph *g) {
             int pos = nl->count;
             while (pos > 0 && nl->angles[pos - 1] > angle) {
                 nl->neighbors[pos] = nl->neighbors[pos - 1];
-                nl->angles[pos]    = nl->angles[pos - 1];
+                nl->angles[pos] = nl->angles[pos - 1];
                 pos--;
             }
             nl->neighbors[pos] = dst;
-            nl->angles[pos]    = angle;
+            nl->angles[pos] = angle;
             nl->count++;
         }
     }
@@ -667,7 +677,7 @@ void split_edge(Graph *g, const int edge_id, const int number_vertex_to_add) {
     for (int i = 1; i <= number_vertex_to_add; i++) {
         const double t = (double)i / (number_vertex_to_add + 1);
         create_vertex(g, ux + t * (vx - ux), uy + t * (vy - uy));
-        const int nv = g->nb_vertex - 1;
+        const int nv = g->nb_vertices - 1;
         create_edge(g, prev, nv);
         prev = nv;
     }
@@ -768,12 +778,12 @@ void move_vertex(Graph *g, const int v, const double new_x, const double new_y) 
  * @param graph Graph to prepare.
  */
 void prepare_graph_matrices(Graph *graph) {
-    if (!graph->edges || graph->nb_vertex == 0) {
+    if (!graph->edges || graph->nb_vertices == 0) {
         printf("prepare_graph_matrices: empty graph, skipping.\n");
         return;
     }
 
-    const int n = graph->nb_vertex;
+    const int n = graph->nb_vertices;
     const int size = n * n;
 
     free(graph->edge_indices);
@@ -782,7 +792,7 @@ void prepare_graph_matrices(Graph *graph) {
 
     graph->edge_indices = malloc(size * sizeof(int));
     graph->predecessors = malloc(size * sizeof(int));
-    graph->distances    = malloc(size * sizeof(int));
+    graph->distances = malloc(size * sizeof(int));
     if (!graph->edge_indices || !graph->predecessors || !graph->distances) {
         perror("prepare_graph_matrices: malloc"); exit(1);
     }
@@ -790,7 +800,7 @@ void prepare_graph_matrices(Graph *graph) {
     for (int i = 0; i < size; i++) {
         graph->edge_indices[i] = -1;
         graph->predecessors[i] = -1;
-        graph->distances[i]    = -1;
+        graph->distances[i] = -1;
     }
 
     for (int i = 0; i < graph->nb_edges; i++) {
@@ -812,14 +822,14 @@ void prepare_graph_matrices(Graph *graph) {
  * @param g Graph whose matrices (allocated by prepare_graph_matrices) are filled.
  */
 void compute_all_shortest_paths(const Graph *g) {
-    int *queue = malloc(g->nb_vertex * sizeof(int));
+    int *queue = malloc(g->nb_vertices * sizeof(int));
     if (!queue) { perror("compute_all_shortest_paths: queue"); exit(1); }
 
     /* BFS from each vertex */
-    for (int s = 0; s < g->nb_vertex; s++) {
+    for (int s = 0; s < g->nb_vertices; s++) {
         if (g->vertices[s].deleted) continue;
 
-        g->distances[s * g->nb_vertex + s] = 0;
+        g->distances[s * g->nb_vertices + s] = 0;
         int front = 0, rear = 1;
         queue[front] = s;
 
@@ -828,9 +838,9 @@ void compute_all_shortest_paths(const Graph *g) {
             for (int i = 0; i < g->neighbors[u].count; i++) {
                 const int v = g->neighbors[u].neighbors[i];
                 if (g->vertices[v].deleted) continue;
-                if (g->distances[s * g->nb_vertex + v] == -1) {
-                    g->distances[s * g->nb_vertex + v] =
-                        g->distances[s * g->nb_vertex + u] + 1;
+                if (g->distances[s * g->nb_vertices + v] == -1) {
+                    g->distances[s * g->nb_vertices + v] =
+                        g->distances[s * g->nb_vertices + u] + 1;
                     queue[rear++] = v;
                 }
             }
@@ -839,11 +849,11 @@ void compute_all_shortest_paths(const Graph *g) {
     free(queue);
 
     /* Predecessors finding in order to compute shortest paths */
-    for (int u = 0; u < g->nb_vertex; u++) {
+    for (int u = 0; u < g->nb_vertices; u++) {
         if (g->vertices[u].deleted) continue;
-        for (int v = 0; v < g->nb_vertex; v++) {
+        for (int v = 0; v < g->nb_vertices; v++) {
             if (g->vertices[v].deleted) continue;
-            int dist = g->distances[u * g->nb_vertex + v];
+            int dist = g->distances[u * g->nb_vertices + v];
             if (dist <= 0) continue;
 
             int current = v;
@@ -852,7 +862,7 @@ void compute_all_shortest_paths(const Graph *g) {
                 for (int i = 0; i < g->neighbors[current].count; i++) {
                     const int nb = g->neighbors[current].neighbors[i];
                     if (g->vertices[nb].deleted) continue;
-                    if (g->distances[u * g->nb_vertex + nb] == dist - 1) {
+                    if (g->distances[u * g->nb_vertices + nb] == dist - 1) {
                         if (best == -1 ||
                             g->vertices[nb].label < g->vertices[best].label)
                             best = nb;
@@ -864,7 +874,7 @@ void compute_all_shortest_paths(const Graph *g) {
                         "on path %d→%d\n", current, u, v);
                     exit(1);
                 }
-                g->predecessors[u * g->nb_vertex + current] = best;
+                g->predecessors[u * g->nb_vertices + current] = best;
                 current = best;
                 dist--;
             }
@@ -894,7 +904,7 @@ Path create_path(const Graph *g, const int u, const int v) {
     p.edges_ids = calloc(g->nb_edges, sizeof(uint32_t));
     if (!p.edges_ids) { perror("create_path: edges_ids"); exit(1); }
 
-    p.vertices_ids = calloc(g->nb_vertex, sizeof(uint32_t));
+    p.vertices_ids = calloc(g->nb_vertices, sizeof(uint32_t));
     if (!p.vertices_ids) {
         free(p.edges_ids); perror("create_path: vertices_ids"); exit(1);
     }
@@ -911,14 +921,14 @@ Path create_path(const Graph *g, const int u, const int v) {
     /* Path computation */
     int current = v;
     while (current != u) {
-        const int pred = g->predecessors[u * g->nb_vertex + current];
+        const int pred = g->predecessors[u * g->nb_vertices + current];
         if (pred == -1) {
             fprintf(stderr, "create_path: missing predecessor for %d on %d→%d\n",
                     current, u, v);
             free(p.edges_ids); free(p.vertices_ids); free(p.edges_labels);
             exit(1);
         }
-        const int eidx = g->edge_indices[current * g->nb_vertex + pred];
+        const int eidx = g->edge_indices[current * g->nb_vertices + pred];
         if (eidx == -1) {
             fprintf(stderr, "create_path: no edge between %d and %d\n", current, pred);
             free(p.edges_ids); free(p.vertices_ids); free(p.edges_labels);
@@ -943,7 +953,7 @@ Path create_path(const Graph *g, const int u, const int v) {
 static void find_outer_face(Graph *g) {
 
     int leftmost = -1;
-    for (int i = 0; i < g->nb_vertex; i++) {
+    for (int i = 0; i < g->nb_vertices; i++) {
         if (g->vertices[i].deleted || g->neighbors[i].count == 0) continue;
         if (leftmost == -1 || g->vertices[i].x < g->vertices[leftmost].x)
             leftmost = i;
@@ -954,7 +964,7 @@ static void find_outer_face(Graph *g) {
     const int neighbor = g->neighbors[leftmost].neighbors[0];
     int u = leftmost, v = neighbor, nb_outer_edge = 0;
     do {
-        const int eid = g->edge_indices[u * g->nb_vertex + v];
+        const int eid = g->edge_indices[u * g->nb_vertices + v];
         if (eid >= 0) g->edges[eid].is_outer = 1;
         nb_outer_edge++;
         const Neighbor_list *nl = &g->neighbors[v];
@@ -1013,7 +1023,7 @@ void find_faces(Graph *g) {
         g->edges[e].is_outer = 0;
     }
 
-    const int n = g->nb_vertex;
+    const int n = g->nb_vertices;
     const int m = g->nb_edges;
     if (!g->edge_indices) prepare_graph_matrices(g);
 
@@ -1109,7 +1119,7 @@ void find_horton_cycles(Graph *g) {
         return;
     }
 
-    for (int v = 0; v < g->nb_vertex; v++) {
+    for (int v = 0; v < g->nb_vertices; v++) {
         if (g->vertices[v].deleted) continue;
 
         for (int e = 0; e < g->nb_edges; e++) {
@@ -1118,8 +1128,8 @@ void find_horton_cycles(Graph *g) {
             const int y = g->edges[e].v;
             if (x == v || y == v) continue;
 
-            const int px = g->predecessors[v * g->nb_vertex + x];
-            const int py = g->predecessors[v * g->nb_vertex + y];
+            const int px = g->predecessors[v * g->nb_vertices + x];
+            const int py = g->predecessors[v * g->nb_vertices + y];
             if (px == -1 || py == -1) {
                 fprintf(stderr,
                     "find_horton_cycles: no path from %d to %d or %d, "
@@ -1130,18 +1140,18 @@ void find_horton_cycles(Graph *g) {
             const Path pv_x = create_path(g, v, x);
             const Path pv_y = create_path(g, v, y);
 
-            uint32_t *expected = calloc(g->nb_vertex, sizeof(uint32_t));
-            uint32_t *actual   = calloc(g->nb_vertex, sizeof(uint32_t));
+            uint32_t *expected = calloc(g->nb_vertices, sizeof(uint32_t));
+            uint32_t *actual   = calloc(g->nb_vertices, sizeof(uint32_t));
             if (!expected || !actual) {
                 free(expected); free(actual); perror("find_horton_cycles"); exit(1);
             }
             expected[v] = 1;
-            for (int i = 0; i < g->nb_vertex; i++)
+            for (int i = 0; i < g->nb_vertices; i++)
                 actual[i] = pv_x.vertices_ids[i] & pv_y.vertices_ids[i];
 
-            if (memcmp(expected, actual, g->nb_vertex * sizeof(uint32_t)) == 0) {
+            if (memcmp(expected, actual, g->nb_vertices * sizeof(uint32_t)) == 0) {
                 uint32_t *ec = calloc(g->nb_edges,  sizeof(uint32_t));
-                uint32_t *vc = calloc(g->nb_vertex, sizeof(uint32_t));
+                uint32_t *vc = calloc(g->nb_vertices, sizeof(uint32_t));
                 uint32_t *el = calloc(g->nb_edges,  sizeof(uint32_t));
                 if (!ec || !vc || !el) {
                     free(ec); free(vc); free(el);
@@ -1153,7 +1163,7 @@ void find_horton_cycles(Graph *g) {
                     ec[i] = pv_x.edges_ids[i] ^ pv_y.edges_ids[i];
                     if (ec[i]) el[g->edges[i].label] = 1;
                 }
-                for (int i = 0; i < g->nb_vertex; i++)
+                for (int i = 0; i < g->nb_vertices; i++)
                     vc[i] = pv_x.vertices_ids[i] ^ pv_y.vertices_ids[i];
 
                 ec[e] = 1;
@@ -1466,6 +1476,7 @@ void greedy_cycle_cover(Graph *g) {
     }
 
     g->basis_dimension = mcb_count;
+    mb.dimension = mcb_count;
 
     /*
      * Check if this basis matches the face decomposition.
@@ -1671,35 +1682,50 @@ static void update_no_face_basis_possible(Graph *g) {
  * @brief Run Horton's algorithm multiple times with different edge-label permutations.
  *
  * @param g Graph on which to run.
- * @param inv Caller-allocated inversion table buffer (size: g->nb_edges).
+ * @param inv_edges Caller-allocated inversion table buffer (size: g->nb_edges).
+ * @param inv_vertices Caller-allocated inversion table buffer (size: g->nb_vertices).
  * @param max_permutations Number of permuted runs to execute.
  */
-void multiple_horton(Graph *g, int *inv, const int max_permutations) {
-    if (!inv || !g->edges) {
+void multiple_horton(Graph *g, int *inv_edges, int * inv_vertices, const int max_permutations) {
+    if (!inv_edges || !inv_vertices || !g->edges) {
         printf("multiple_horton: missing inversion table or edges, skipping.\n");
         return;
     }
 
     find_faces(g);
 
-    int *perm = calloc(g->nb_edges, sizeof(int));
-    if (!perm) { perror("multiple_horton: perm"); exit(1); }
+    int *perm_edges = calloc(g->nb_edges, sizeof(int));
+    if (!perm_edges) { perror("multiple_horton: perm"); exit(1); }
 
-    generate_random_inversion_table(inv, g->nb_edges);
-    inversion_to_permutation(inv, perm, g->nb_edges);
-    for (int i = 0; i < g->nb_edges; i++) g->edges[i].label = perm[i];
+    int *perm_vertices = calloc(g->nb_vertices, sizeof(int));
+    if (!perm_vertices) { perror("multiple_horton: vertices"); exit(1); }
+
+    generate_random_inversion_table(inv_edges, g->nb_edges);
+    inversion_to_permutation(inv_edges, perm_edges, g->nb_edges);
+
+    generate_random_inversion_table(inv_vertices, g->nb_vertices);
+    inversion_to_permutation(inv_vertices, perm_vertices, g->nb_vertices);
+
+    for (int i = 0; i < g->nb_edges; i++) g->edges[i].label = perm_edges[i];
+    for (int i = 0; i < g->nb_vertices; i++) g->vertices[i].label = perm_vertices[i];
+
     horton(g);
 
     for (int cnt = 1; cnt < max_permutations; cnt++) {
-        memset(perm, 0, g->nb_edges * sizeof(int));
-        generate_random_inversion_table(inv, g->nb_edges);
-        inversion_to_permutation(inv, perm, g->nb_edges);
-        for (int i = 0; i < g->nb_edges; i++) g->edges[i].label = perm[i];
-        printf("%d / %d\n", cnt, max_permutations);
+        memset(perm_edges, 0, g->nb_edges * sizeof(int));
+        generate_random_inversion_table(inv_edges, g->nb_edges);
+        inversion_to_permutation(inv_edges, perm_edges, g->nb_edges);
+
+        memset(perm_vertices, 0, g->nb_vertices * sizeof(int));
+        generate_random_inversion_table(inv_vertices, g->nb_vertices);
+        inversion_to_permutation(inv_vertices, perm_vertices, g->nb_vertices);
+
+        for (int i = 0; i < g->nb_edges; i++) g->edges[i].label = perm_edges[i];
+        for (int i = 0; i < g->nb_vertices; i++) g->vertices[i].label = perm_vertices[i];
         horton(g);
     }
 
-    free(perm);
+    free(perm_edges);
 
     /* If Horton never found the face basis, try adding it explicitly. */
     if (g->face_basis < 0)

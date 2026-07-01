@@ -96,6 +96,14 @@
         </div>
 
         <div class="panel-section">
+            <div class="panel-section-title">Graphe de cycles</div>
+            <button class="btn" id="showCycleGraphBtn" disabled>Voir graphe de cycles</button>
+            <div style="font-size:0.72rem;color:#64748b;">
+                Sélectionnez une base dans la liste
+            </div>
+        </div>
+
+        <div class="panel-section">
             <div class="panel-section-title">Algorithme de Horton</div>
             <div class="input-row">
                 <span class="input-label">Itérations</span>
@@ -156,6 +164,28 @@
         <div class="modal-actions">
             <button class="btn" id="generateCancel">Annuler</button>
             <button class="btn success" id="generateConfirm">Générer</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="cycleGraphModal">
+    <div class="modal" style="min-width:560px;max-width:720px;width:90vw;">
+        <h2 id="cycleGraphTitle">Graphe de cycles – Base ?</h2>
+        <div style="position:relative;">
+            <svg id="cycleGraphSvg"
+                 xmlns="http://www.w3.org/2000/svg"
+                 style="width:100%;height:460px;background:#0f1117;border-radius:8px;display:block;"></svg>
+            <div id="cycleGraphTooltip"
+                 style="display:none;position:absolute;background:#1a1d2e;border:1px solid #3d4264;
+                        color:#e2e8f0;padding:5px 10px;border-radius:6px;font-size:0.78rem;
+                        pointer-events:none;z-index:10;white-space:nowrap;"></div>
+        </div>
+        <div style="font-size:0.78rem;color:#64748b;margin-top:4px;" id="cycleGraphInfo"></div>
+        <div style="font-size:0.73rem;color:#4f7cff;margin-top:2px;">
+            Double-cliquez sur un sommet pour sélectionner le cycle dans la vue principale.
+        </div>
+        <div class="modal-actions">
+            <button class="btn" id="cycleGraphClose">Fermer</button>
         </div>
     </div>
 </div>

@@ -1,248 +1,118 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <time.h>
+
 #include "graph.h"
-#include "planar_graph_creator.h"
-#include "permutations.h"
+#include "dfs_graph.h"
 
-void test_multiple_horton(Graph* g, const char* filename) {
+static void dump_pipeline(const char *label, Graph *g) {
+    printf("\n########## %s ##########\n", label);
 
-    const int n = g->nb_edges;
-    int *inv = calloc(n, sizeof(int));
-
-    multiple_horton(g, inv, 10);
-
-    printf("\n=== RÉSULTATS ===\n");
-    printf("Nombre de bases minimales distinctes trouvées: %d\n\n", g->nb_minimal_bases);
-
-    for (int b = 0; b < g->nb_minimal_bases; b++) {
-        printf("Minimal cycle basis %d:\n", b + 1);
-        for (int i = 0; i < g->basis_dimension; i++) {
-            printf("  Cycle %d: length = %d, edges = [", i + 1,
-                   g->minimals_basis[b].cycles[i].length);
-            for (int e = 0; e < g->nb_edges; e++) {
-                if (g->minimals_basis[b].cycles[i].edges_ids[e] == 1) {
-                    printf(" %d", e);
-                }
-            }
-            printf(" ]\n");
-        }
-    }
-    save_graph(g, filename);
-    free(inv);
-}
-
-void test_planar_graph() {
-    const int nb_vertex = 10;
-    Graph* planar = create_planar_graph(nb_vertex, 10000);
-    test_multiple_horton(planar, "planar_test.txt");
-    delete_graph(planar);
-    Graph* outer_planar = create_outer_planar_graph(nb_vertex, 70);
-    test_multiple_horton(outer_planar, "outer_planar_test.txt");
-    delete_graph(outer_planar);
-
-}
-
-void test_tree() {
-    const int nb_vertex = 50;
-    Graph* g = create_graph();
-    double created[nb_vertex][2];
-    int i = 0;
-    while (i < nb_vertex) {
-        const double x = rand() % (nb_vertex*100);
-        const double y = rand() % (nb_vertex*100);
-        int already_exists = 0;
-        for (int j = 0; j < i; j++) {
-            if (created[j][0] == x && created[j][1] == y) {
-                already_exists = 1;
-                break;
-            }
-        }
-        if (!already_exists) {
-            created[i][0] = x;
-            created[i][1] = y;
-            create_vertex(g, x, y);
-            i++;
-        }
-    }
-
-    int *perm = malloc(g->nb_vertex * (g->nb_vertex - 1) * sizeof(int));
-    create_all_edges(g->nb_vertex, perm);
-    fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
-
-    create_tree(g, perm);
-
-    save_graph(g, "tree_graph.txt");
-    delete_graph(g);
-    free(perm);
-}
-
-void test_permutations() {
-    const int n = 4; // Number of elements in the permutation
-    int *inv = calloc(n, sizeof(int));
-    int *perm = calloc(n, sizeof(int));
-    inversion_to_permutation(inv, perm, n);
-    printf("Inversion table: [");
-    for (int i = 0; i < n; i++) {
-        printf("%d ", inv[i]);
-    }
-    printf("] -> Permutation: [");
-    for (int i = 0; i < n; i++) {
-        printf("%d ", perm[i]);
-    }
-    printf("]\n");
-
-    while(next_inversion_table(inv, n))
-    {
-        memset(perm, 0, n * sizeof(int));
-        inversion_to_permutation(inv, perm, n);
-        printf("Inversion table: [");
-        for (int i = 0; i < n; i++) {
-            printf("%d ", inv[i]);
-        }
-        printf("] -> Permutation: [");
-        for (int i = 0; i < n; i++) {
-            printf("%d ", perm[i]);
-        }
-        printf("]\n");
-    }
-
-    free(inv);
-    free(perm);
-}
-
-void test_all_edges_creation() {
-    const int nb_vertex = 5;
-    int *perm = malloc(nb_vertex * (nb_vertex - 1) * sizeof(int));
-    create_all_edges(nb_vertex, perm);
-    printf("All edges for %d vertices:\n", nb_vertex);
-    for (int i = 0; i < nb_vertex * (nb_vertex - 1); i += 2) {
-        printf("Edge: (%d, %d)\n", perm[i], perm[i + 1]);
-    }
-    free(perm);
-}
-
-void test_fisher_yates() {
-    const int n = 10;
-    int *array = malloc(n * sizeof(int));
-    for (int i = 0; i < n; i++) {
-        array[i] = i;
-    }
-    printf("Original array: [");
-    for (int i = 0; i < n; i++) {
-        printf("%d ", array[i]);
-    }
-    printf("]\n");
-
-    fisher_yates_shuffle(array, n);
-    printf("Shuffled array: [");
-    for (int i = 0; i < n; i++) {
-        printf("%d ", array[i]);
-    }
-    printf("]\n");
-
-    free(array);
-}
-
-void test_faces() {
-    Graph *g = create_graph();
-    load_graph(g, "C:\\Users\\arias\\CLionProjects\\TER_Graphes_Planaires\\cmake-build-debug\\graph_patron_cube.txt");
-    find_faces(g);
-    printf("Number of faces: %d\n", g->nb_faces);
-    for (int i = 0; i < g->nb_faces; i++) {
-        printf("Face %d: length = %d, edges = [", i + 1, g->faces[i].length);
-        for (int e = 0; e < g->nb_edges; e++) {
-            if (g->faces[i].edges_ids[e] == 1) {
-                printf("(%d %d)", g->edges[e].u, g->edges[e].v);
-            }
-        }
-        printf("]\n");
-    }
-    printf("Outer edges: [");
-    for (int e = 0; e < g->nb_edges; e++) {
-        if (g->edges[e].deleted) continue;
-        if (g->edges[e].is_outer) {
-            printf("(%d %d)", g->edges[e].u, g->edges[e].v);
-        }
-    }
-    printf("]\n");
-    printf("outer face: %d\n", g->outer_face+1);
-    delete_graph(g);
-}
-
-void test_carre() {
-    Graph *g = create_graph();
-    create_vertex(g, 0, 0);
-    create_vertex(g, -1, 0);
-    create_vertex(g, -2, 0);
-    create_vertex(g, -2, 1);
-    create_vertex(g, -1, 1);
-    create_edge(g, 0, 1);
-    create_edge(g, 1, 2);
-    create_edge(g, 2, 3);
-    create_edge(g, 3, 4);
-    create_edge(g, 4,0);
-    create_edge(g, 3, 0);
-
-
-    find_faces(g);
-    printf("Number of faces: %d\n", g->nb_faces);
-    for (int i = 0; i < g->nb_faces; i++) {
-        printf("Face %d: length = %d, edges = [", i + 1, g->faces[i].length);
-        for (int e = 0; e < g->nb_edges; e++) {
-            if (g->faces[i].edges_ids[e] == 1) {
-                printf("%d ", e);
-            }
-        }
-        printf("]\n");
-    }
-    printf("outer_faces: %d\n", g->outer_face);
-    int* inv = calloc(g->nb_edges, sizeof(int));
-    multiple_horton(g, inv, 10);
-    printf("Cycles:");
-    for (int i = 0; i < 7; i++) {
-        for (int e = 0; e < g->nb_edges; e++) {
-            if (g->horton_cycles[i].edges_ids[e] == 1) {
-                printf("%d ", e);
-            }
-        }
+    printf("Adjacency:\n");
+    for (int v = 0; v < g->nb_vertices; v++) {
+        printf("  %d:", v);
+        for (int i = 0; i < g->neighbors[v].count; i++)
+            printf(" %d", g->neighbors[v].neighbors[i]);
         printf("\n");
     }
 
-    printf("cycle basis\n");
-    for (int b = 0; b < g->nb_minimal_bases; b++) {
-        printf("Minimal cycle basis %d:\n", b);
-        for (int i = 0; i < g->basis_dimension; i++) {
-            printf("  Cycle %d: length = %d, edges = [", i,
-                   g->minimals_basis[b].cycles[i].length);
-            for (int e = 0; e < g->nb_edges; e++) {
-                if (g->minimals_basis[b].cycles[i].edges_ids[e] == 1) {
-                    printf(" %d", e);
-                }
-            }
-            printf(" ]\n");
+    DfsGraph *dfs = build_dfs_graph(g);
+    compute_low_values(dfs);
+    build_phi_lists(dfs);
+    build_singular_sets(dfs);
+    compute_same_diff(dfs);
+    build_SAME_DIFF_prime(dfs);
+
+    printf("\nDFS tree (parent_edge):\n");
+    for (int v = 0; v < dfs->vertices_count; v++) {
+        int pe = dfs->vertices[v].parent_edge;
+        if (pe == -1) printf("  v=%d root (dfs_num=%d)\n", v, dfs->vertices[v].dfs_num);
+        else printf("  v=%d dfs_num=%d  parent_edge=%d (%d->%d)\n",
+                    v, dfs->vertices[v].dfs_num, pe,
+                    dfs->edges[pe].from, dfs->edges[pe].to);
+    }
+
+    printf("\nSAME' groups:\n");
+    for (int i = 0; i < dfs->SAME_prime.nb_groups; i++) {
+        printf("  group %d: {", i);
+        for (int j = 0; j < dfs->SAME_prime.groups[i].size; j++) {
+            int e = dfs->SAME_prime.groups[i].edges[j];
+            printf(" %d->%d", dfs->edges[e].from, dfs->edges[e].to);
         }
+        printf(" }  partner=%d\n", dfs->DIFF_prime.partner[i]);
     }
-    printf("face basis index: %d\n", g->face_basis);
-    printf("face basis outer indices: [");
-    for (int i=0; i < g->nb_face_basis_outer; i++) {
-        printf("%d ", g->face_basis_outer[i]);
+
+    int d = 0, s = 0;
+    int *done = calloc(dfs->SAME_prime.nb_groups, sizeof(int));
+    for (int i = 0; i < dfs->SAME_prime.nb_groups; i++) {
+        if (done[i]) continue;
+        int p = dfs->DIFF_prime.partner[i];
+        if (p == -1) { s++; done[i] = 1; }
+        else { d++; done[i] = done[p] = 1; }
     }
-    printf("]\n");
-    delete_graph(g);
-    free(inv);
+    free(done);
+    printf("\nd=%d  s=%d\n", d, s);
+
+    printf("\nSingular sets (RS) and h(x):\n");
+    for (int si = 0; si < dfs->nb_singular_sets; si++) {
+        SingularSet *set = &dfs->singular_sets[si];
+        printf("  set %d (vertex dfs_num=%d, low1=%d, g(x)=%d): {",
+               si, dfs->vertices[set->vertex].dfs_num, set->low1, set->size);
+        for (int j = 0; j < set->size; j++) {
+            int e = set->edges[j];
+            printf(" %d->%d", dfs->edges[e].from, dfs->edges[e].to);
+        }
+        printf(" }\n");
+    }
+
+    EmbeddingSet result = enumerate_embeddings(dfs);
+    printf("\n>>> enumerate_embeddings count = %d\n", result.count);
+
+    free_embedding_set(&result);
+    free_dfs_graph(dfs);
 }
 
-int main() {
-    srand(time(NULL));
-    // test_permutations();
-    // test_tree();
-    // test_planar_graph();
-    //test_all_edges_creation();
-    //test_fisher_yates();
-    //test_faces();
-    test_carre();
+int main(void) {
+
+    /* Version A : ordre observé via create_planar_graph (4 embeddings) */
+    Graph *gA = create_graph();
+    for (int i = 0; i < 6; i++) create_vertex(gA, 0, 0);
+    create_edge(gA, 0, 3);
+    create_edge(gA, 0, 5);
+    create_edge(gA, 0, 1);
+    create_edge(gA, 1, 2);
+    create_edge(gA, 1, 4);
+    create_edge(gA, 1, 3);
+    create_edge(gA, 2, 3);
+    create_edge(gA, 2, 4);
+    create_edge(gA, 3, 5);
+    for (int i = 0; i < 4; i++) delete_vertex(gA, 0);
+    for (int i = 0; i < 4; i++) create_vertex(gA, 0, 0);
+    create_edge(gA, 0, 3);
+    create_edge(gA, 0, 5);
+    create_edge(gA, 0, 1);
+    create_edge(gA, 1, 2);
+    create_edge(gA, 1, 4);
+    create_edge(gA, 1, 3);
+    create_edge(gA, 2, 3);
+    create_edge(gA, 2, 4);
+    create_edge(gA, 3, 5);
+    dump_pipeline("VERSION A (create_planar_graph order)", gA);
+    delete_graph(gA);
+
+    /* Version B : ordre manuel (8 embeddings) */
+    Graph *gB = create_graph();
+    for (int i = 0; i < 6; i++) create_vertex(gB, 0, 0);
+    create_edge(gB, 0, 1);
+    create_edge(gB, 0, 3);
+    create_edge(gB, 0, 5);
+    create_edge(gB, 1, 2);
+    create_edge(gB, 1, 3);
+    create_edge(gB, 1, 4);
+    create_edge(gB, 2, 3);
+    create_edge(gB, 2, 4);
+    create_edge(gB, 3, 5);
+    dump_pipeline("VERSION B (manual order)", gB);
+    delete_graph(gB);
 
     return 0;
 }

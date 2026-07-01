@@ -51,23 +51,29 @@ static void reset_bases(void) {
         g->faces[i].edges_labels = NULL;
         g->faces[i].vertices_ids = NULL;
     }
-    g->nb_faces         = 0;
-    g->face_basis       = -1;
+    g->nb_faces = 0;
+    g->face_basis = -1;
     free(g->face_basis_outer);
-    g->face_basis_outer    = NULL;
+    g->face_basis_outer = NULL;
     g->nb_face_basis_outer = 0;
 }
 
 /**
  * Run multiple_horton with a freshly-zeroed inversion table.
- * n <= 0  →  no-op.
  */
 static void run_horton(int n) {
     if (!g || n <= 0 || g->nb_edges < 1) return;
-    int *inv = calloc(g->nb_edges, sizeof(int));
-    if (!inv) return;
-    multiple_horton(g, inv, n);
-    free(inv);
+    srand((unsigned)time(NULL) ^ (unsigned)(uintptr_t)g);
+    int *inv_edges = calloc(g->nb_edges, sizeof(int));
+    if (!inv_edges) return;
+    int *inv_vertices = calloc(g->nb_vertices, sizeof(int));
+    if (!inv_vertices) {
+        free(inv_edges);
+        return;
+    }
+    multiple_horton(g, inv_edges, inv_vertices, n);
+    free(inv_edges);
+    free(inv_vertices);
 }
 
 /**
@@ -85,7 +91,7 @@ void wasm_init() {
  */
 EMSCRIPTEN_KEEPALIVE
 void wasm_generate_planar(int nb_v, int nb_e, int n_horton) {
-    srand((unsigned)time(NULL));
+    srand((unsigned)time(NULL) ^ (unsigned)(uintptr_t)g);
     if (g) delete_graph(g);
     g = create_planar_graph(nb_v, nb_e);
     run_horton(n_horton);
@@ -96,7 +102,7 @@ void wasm_generate_planar(int nb_v, int nb_e, int n_horton) {
  */
 EMSCRIPTEN_KEEPALIVE
 void wasm_generate_outer_planar(int nb_v, int nb_e, int n_horton) {
-    srand((unsigned)time(NULL));
+    srand((unsigned)time(NULL) ^ (unsigned)(uintptr_t)g);
     if (g) delete_graph(g);
     g = create_outer_planar_graph(nb_v, nb_e);
     run_horton(n_horton);
@@ -170,7 +176,7 @@ void wasm_add_vertex(double x, double y, int n_horton) {
  */
 EMSCRIPTEN_KEEPALIVE
 void wasm_delete_vertex(int vid, int n_horton) {
-    if (!g || vid < 0 || vid >= g->nb_vertex) return;
+    if (!g || vid < 0 || vid >= g->nb_vertices) return;
     /*
      * reset_bases() est indispensable avant toute mutation :
      *   1. Il remet nb_faces à 0, ce qui force find_faces() dans horton()
@@ -223,21 +229,21 @@ void wasm_delete_edge(int eid, int n_horton) {
  */
 EMSCRIPTEN_KEEPALIVE
 void wasm_move_vertex(int vid, double x, double y) {
-    if (!g || vid < 0 || vid >= g->nb_vertex) return;
+    if (!g || vid < 0 || vid >= g->nb_vertices) return;
 
     move_vertex(g, vid, x, y);   /* updates angles, neighbour sort, find_faces */
 
     /* Reset face-basis tracking */
     g->face_basis = -1;
     free(g->face_basis_outer);
-    g->face_basis_outer    = NULL;
+    g->face_basis_outer = NULL;
     g->nb_face_basis_outer = 0;
 
     /* Recompute is_faces / is_faces_outer for every stored basis against the
      * new face decomposition — the old flags are stale after a move. */
     for (int b = 0; b < g->nb_minimal_bases; b++) {
         const int result = mb_is_faces(g, &g->minimals_basis[b]);
-        g->minimals_basis[b].is_faces       = (result == 1) ? 1 : 0;
+        g->minimals_basis[b].is_faces = (result == 1) ? 1 : 0;
         g->minimals_basis[b].is_faces_outer = (result == 2) ? 1 : 0;
 
         if (result == 1) {
@@ -280,7 +286,7 @@ void wasm_split_edges(int *eids, int n_eids, int k, int n_horton) {
 }
 
 /** Total number of vertex slots (including deleted vertices). */
-EMSCRIPTEN_KEEPALIVE int wasm_nb_vertices(void) { return g ? g->nb_vertex : 0;  }
+EMSCRIPTEN_KEEPALIVE int wasm_nb_vertices(void) { return g ? g->nb_vertices : 0;  }
 
 /** Total number of edge slots (including deleted edges). */
 EMSCRIPTEN_KEEPALIVE int wasm_nb_edges(void) { return g ? g->nb_edges : 0;  }

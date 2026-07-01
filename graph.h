@@ -82,6 +82,7 @@ typedef struct {
     int is_faces; /**< 1 if this basis correspond to all faces (except the outer one), 0 otherwise */
     int is_faces_outer; /**< 1 if this basis correspond to all faces (including the outer one) except one, 0 otherwise */
     int length;
+    int dimension;
 } Minimal_basis;
 
 /**
@@ -91,7 +92,7 @@ typedef struct {
  * algorithm and the storage of the differents minimal cycle bases.
  */
 typedef struct {
-    int nb_vertex; /**< Number of vertices in the graph */
+    int nb_vertices; /**< Number of vertices in the graph */
     int capacity_vertices; /**< Capacity of the allocated vertices array */
     Vertex *vertices; /**< Dynamic array of vertices, where vertices[i] is the vertex with id i in
     the graph */
@@ -149,7 +150,9 @@ void save_graph(const Graph *g, const char *filename);
 
 void delete_graph(Graph *g);
 
-void multiple_horton(Graph *g, int *inv, int max_permutations);
+void prepare_graph_matrices(Graph *graph);
+
+void multiple_horton(Graph *g, int *inv_edges, int *inv_vertices, int max_permutations);
 
 void load_graph(Graph *g, const char *filename);
 

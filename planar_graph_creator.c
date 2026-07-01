@@ -120,7 +120,7 @@ void spread_label(Graph* g, const int edge_id) {
  *
  */
 void create_tree(Graph* g, const int* perm) {
-    for (int i = 0; i < g->nb_vertex; i++) {
+    for (int i = 0; i < g->nb_vertices; i++) {
         g->vertices[i].label = i;
     }
 
@@ -128,7 +128,7 @@ void create_tree(Graph* g, const int* perm) {
     int edges_added = 0;
     int perm_index = 0;
 
-    while (edges_added < g->nb_vertex - 1 && perm_index + 1 < g->nb_vertex * (g->nb_vertex - 1)) {
+    while (edges_added < g->nb_vertices - 1 && perm_index + 1 < g->nb_vertices * (g->nb_vertices - 1)) {
 
         int v1 = perm[perm_index++];
         int v2 = perm[perm_index++];
@@ -144,7 +144,7 @@ void create_tree(Graph* g, const int* perm) {
         }
 
         unique_label = 1;
-        for (int i=0; i < g->nb_vertex; i++) {
+        for (int i=0; i < g->nb_vertices; i++) {
             if (g->vertices[i].label != 0) {
                 unique_label = 0;
                 break;
@@ -197,20 +197,20 @@ Graph* create_outer_planar_graph(const int nb_vertex, int nb_edges_target) {
     nb_edges_target = nb_edges_target < 2 * nb_vertex - 6 ? nb_edges_target : 2 * nb_vertex - 6;
 
     int attempts = 0;
-    int *perm = malloc(g->nb_vertex * (g->nb_vertex - 1) * sizeof(int));
-    create_all_edges(g->nb_vertex, perm);
-    fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
+    int *perm = malloc(g->nb_vertices * (g->nb_vertices - 1) * sizeof(int));
+    create_all_edges(g->nb_vertices, perm);
+    fisher_yates_shuffle(perm, g->nb_vertices * (g->nb_vertices - 1));
 
-    while (g->nb_edges < nb_edges_target && attempts < (g->nb_vertex * (g->nb_vertex - 1))/2) {
+    while (g->nb_edges < nb_edges_target && attempts < (g->nb_vertices * (g->nb_vertices - 1))/2) {
         int v1 = perm[2*attempts];
         int v2 = perm[2*attempts + 1];
         attempts++;
 
-        while (v1 == (v2 + 1) % g->nb_vertex || v2 == (v1 + 1) % g->nb_vertex) {
+        while (v1 == (v2 + 1) % g->nb_vertices || v2 == (v1 + 1) % g->nb_vertices) {
             v1 = perm[2*attempts];
             v2 = perm[2*attempts + 1];
                 attempts++;
-                if (attempts >= (g->nb_vertex * (g->nb_vertex - 1))/2) {
+                if (attempts >= (g->nb_vertices * (g->nb_vertices - 1))/2) {
                     break;
                 }
         }
@@ -257,9 +257,9 @@ Graph* create_planar_graph(const int nb_vertex, const int nb_edges_target) {
         }
     }
 
-    int* perm = malloc(g->nb_vertex * (g->nb_vertex - 1) * sizeof(int));
-    create_all_edges(g->nb_vertex, perm);
-    fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
+    int* perm = malloc(g->nb_vertices * (g->nb_vertices - 1) * sizeof(int));
+    create_all_edges(g->nb_vertices, perm);
+    fisher_yates_shuffle(perm, g->nb_vertices * (g->nb_vertices - 1));
 
     /*
      * FIX: construire d'abord un arbre couvrant aléatoire (n-1 arêtes) pour
@@ -270,8 +270,8 @@ Graph* create_planar_graph(const int nb_vertex, const int nb_edges_target) {
     create_tree(g, perm);
 
     /* Regénérer une permutation fraîche pour les arêtes supplémentaires */
-    create_all_edges(g->nb_vertex, perm);
-    fisher_yates_shuffle(perm, g->nb_vertex * (g->nb_vertex - 1));
+    create_all_edges(g->nb_vertices, perm);
+    fisher_yates_shuffle(perm, g->nb_vertices * (g->nb_vertices - 1));
     int perm_index = 0;
 
     /*
@@ -283,13 +283,13 @@ Graph* create_planar_graph(const int nb_vertex, const int nb_edges_target) {
     const int max_total = 3 * nb_vertex - 6;
     const int edge_cap  = (nb_edges_target < max_total ? nb_edges_target : max_total);
 
-    while (g->nb_edges < edge_cap && perm_index < g->nb_vertex * (g->nb_vertex - 1)) {
+    while (g->nb_edges < edge_cap && perm_index < g->nb_vertices * (g->nb_vertices - 1)) {
         const int v1 = perm[perm_index++];
         const int v2 = perm[perm_index++];
         try_add_edge(g, v1, v2);
     }
 
-    for (int i = 0; i < g->nb_vertex; i++) {
+    for (int i = 0; i < g->nb_vertices; i++) {
         if (g->neighbors[i].count == 1) {
             delete_vertex(g, i);
             i = -1;  /* compact_graph renumbers all IDs → restart from 0 */
@@ -297,5 +297,27 @@ Graph* create_planar_graph(const int nb_vertex, const int nb_edges_target) {
     }
 
     free(perm);
+    return g;
+}
+
+Graph* create_three_connex_planar_graph(const int nb_edges, const int nb_edges_target) {
+    Graph *g = create_planar_graph(nb_edges, nb_edges_target);
+
+    int done = 0;
+
+    while (!done) {
+        done = 1;
+        for (int i = 0; i < g->nb_vertices; i++) {
+            if (g->neighbors[i].count < 3) {
+                delete_vertex(g, i);
+                i = -1;
+                done = 0;
+            }
+        }
+    }
+
+    if (g->nb_vertices < 4) {
+        return NULL;
+    }
     return g;
 }

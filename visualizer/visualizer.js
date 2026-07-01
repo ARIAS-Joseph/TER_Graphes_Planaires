@@ -9,6 +9,9 @@ let selectedEdge= null;
 let scale= 1, panX = 0, panY = 0;
 let isPanning= false, panStart = null;
 let draggingVertex= null, dragMoved = false;
+let cgPositions = {};    // bIdx -> [{x,y}] positions in cycle-graph modal
+let cgDragging  = null;  // {idx, ox, oy, moved} while dragging a cycle-node
+let cgModalOpen = false; // true while the cycle-graph modal is visible
 
 const MODE = { NORMAL: 'normal', ADD_VERTEX: 'add_vertex', ADD_EDGE: 'add_edge' };
 let editMode = MODE.NORMAL;
@@ -217,6 +220,7 @@ function updateActionButtons() {
     document.getElementById('deleteEdgeBtn').disabled = selectedEdge === null;
     document.getElementById('splitEdgeBtn').disabled = !graphData;
     document.getElementById('runHortonBtn').disabled = !graphData;
+    document.getElementById('showCycleGraphBtn').disabled = activeBasis === null;
 }
 
 function reconstructCyclePath(edgeIndices, edges) {
@@ -511,7 +515,7 @@ function renderGraph() {
     if (activeBasis !== null && activeCycle !== null) {
         const  edgeIds = d.bases[activeBasis][activeCycle];
         const color = PALETTE[(activeBasis * d.D + activeCycle) % PALETTE.length];
-         edgeIds.forEach(function( edgeId) {
+        edgeIds.forEach(function( edgeId) {
             highlightedEdges.add( edgeId); cycleColors[ edgeId] = color;
             const edge = d.edges.find(function(e) { return e.id ===  edgeId; });
             highlightedNodes.add(edge.u); highlightedNodes.add(edge.v);
@@ -691,6 +695,7 @@ svg.addEventListener('mousedown', function(e) {
 });
 
 window.addEventListener('mousemove', function(e) {
+    if (cgModalOpen) return;
     if (draggingVertex !== null) {
         const rect = document.getElementById('canvasArea').getBoundingClientRect();
         const pos = unproject(e.clientX - rect.left, e.clientY - rect.top);
@@ -706,6 +711,7 @@ window.addEventListener('mousemove', function(e) {
 });
 
 window.addEventListener('mouseup', function() {
+    if (cgModalOpen) return;
     if (draggingVertex !== null && dragMoved) {
         callC('move_vertex', [
             draggingVertex.id,
@@ -737,9 +743,306 @@ window.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         setEditMode(MODE.NORMAL);
         document.getElementById('splitModal').classList.remove('open');
+        cgModalOpen = false;
+        document.getElementById('cycleGraphModal').classList.remove('open');
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && document.activeElement.tagName !== 'INPUT') {
         if (selectedEdge !== null)   document.getElementById('deleteEdgeBtn').click();
         else if (selectedVertex !== null) document.getElementById('deleteVertexBtn').click();
     }
 });
+
+// ─── Cycle Graph ──────────────────────────────────────────────────────────────
+
+document.getElementById('showCycleGraphBtn').addEventListener('click', function() {
+    if (activeBasis === null) return;
+    openCycleGraphModal(activeBasis);
+});
+document.getElementById('cycleGraphClose').addEventListener('click', function() {
+    cgModalOpen = false;
+    document.getElementById('cycleGraphModal').classList.remove('open');
+});
+
+// Compute the geometric center of a cycle in the original graph's coordinate space
+function computeCycleCentroid(edgeIndices) {
+    const vids = new Set();
+    edgeIndices.forEach(function(eid) {
+        const e = graphData.edges.find(function(x) { return x.id === eid; });
+        if (e) { vids.add(e.u); vids.add(e.v); }
+    });
+    let sx = 0, sy = 0, cnt = 0;
+    vids.forEach(function(vid) {
+        const v = graphData.vertexMap[vid];
+        if (v) { sx += v.x; sy += v.y; cnt++; }
+    });
+    return cnt > 0 ? { x: sx / cnt, y: sy / cnt } : { x: 0, y: 0 };
+}
+
+// Initialise positions from cycle centroids, fitted into the SVG viewport
+function initCgPositions(bIdx, W, H) {
+    const cycles = graphData.bases[bIdx];
+    // Reuse saved positions if count still matches (survives basis switches and even graph edits
+    // that don't change the number of cycles in this basis).
+    if (cgPositions[bIdx] && cgPositions[bIdx].length === cycles.length) return;
+    const centroids = cycles.map(function(edgeIds) { return computeCycleCentroid(edgeIds); });
+    const PAD = 60;
+    const xs = centroids.map(function(p) { return p.x; });
+    const ys = centroids.map(function(p) { return p.y; });
+    const minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+    const minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+    const sc  = Math.min((W - PAD * 2) / rangeX, (H - PAD * 2) / rangeY);
+    const offX = (W - rangeX * sc) / 2 - minX * sc;
+    const offY = (H - rangeY * sc) / 2 - minY * sc;
+    cgPositions[bIdx] = centroids.map(function(p) {
+        return { x: p.x * sc + offX, y: p.y * sc + offY };
+    });
+}
+
+function buildCycleGraph(bIdx) {
+    const cycles = graphData.bases[bIdx];
+    const n = cycles.length;
+    const cycleSets = cycles.map(function(edgeIds) { return new Set(edgeIds); });
+    const edges = [];
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            const shared = cycles[j].filter(function(e) { return cycleSets[i].has(e); });
+            if (shared.length > 0) edges.push({ u: i, v: j, shared: shared });
+        }
+    }
+    return { n: n, cycleEdges: cycles, edges: edges };
+}
+
+function openCycleGraphModal(bIdx) {
+    document.getElementById('cycleGraphTitle').textContent =
+        'Graphe de cycles – Base ' + (bIdx + 1);
+    cgModalOpen = true;
+    document.getElementById('cycleGraphModal').classList.add('open');
+    setTimeout(function() { renderCycleGraph(bIdx); }, 30);
+}
+
+function renderCycleGraph(bIdx) {
+    const svgEl = document.getElementById('cycleGraphSvg');
+    svgEl.innerHTML = '';
+    cgDragging = null;
+
+    const cg = buildCycleGraph(bIdx);
+    const n  = cg.n;
+    const W  = svgEl.clientWidth  || 560;
+    const H  = svgEl.clientHeight || 460;
+    const NODE_R = 18;
+
+    initCgPositions(bIdx, W, H);
+    const pos = cgPositions[bIdx]; // live array — dragging mutates it in place
+
+    // ── Edge layer (rendered below nodes) ──────────────────────────────────────
+    const edgesLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svgEl.appendChild(edgesLayer);
+
+    // Keep refs to update lines during drag
+    const lineEls = cg.edges.map(function(e) {
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', pos[e.u].x); line.setAttribute('y1', pos[e.u].y);
+        line.setAttribute('x2', pos[e.v].x); line.setAttribute('y2', pos[e.v].y);
+        line.style.stroke = '#3d4264';
+        line.style.strokeWidth = '2';
+        line.style.transition = 'stroke .1s';
+
+        const hit = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        hit.setAttribute('x1', pos[e.u].x); hit.setAttribute('y1', pos[e.u].y);
+        hit.setAttribute('x2', pos[e.v].x); hit.setAttribute('y2', pos[e.v].y);
+        hit.style.stroke = 'transparent';
+        hit.style.strokeWidth = '14';
+
+        const sharedLabel = e.shared.map(function(id) {
+            const ge = graphData.edges.find(function(x) { return x.id === id; });
+            return ge ? '(' + ge.u + '–' + ge.v + ')' : 'e' + id;
+        }).join(', ');
+        const tipText = e.shared.length + ' arête'
+            + (e.shared.length > 1 ? 's' : '') + ' commune'
+            + (e.shared.length > 1 ? 's' : '') + ': ' + sharedLabel;
+
+        hit.addEventListener('mouseenter', function(ev) {
+            line.style.stroke = '#7c8cf8'; line.style.strokeWidth = '3';
+            showCycleGraphTip(ev, tipText);
+        });
+        hit.addEventListener('mousemove', moveCycleGraphTip);
+        hit.addEventListener('mouseleave', function() {
+            line.style.stroke = '#3d4264'; line.style.strokeWidth = '2';
+            hideCycleGraphTip();
+        });
+
+        edgesLayer.appendChild(line);
+        edgesLayer.appendChild(hit);
+        return { line: line, hit: hit };
+    });
+
+    // Helper: refresh all edge endpoints that touch a given node index
+    function updateEdgesForNode(idx) {
+        cg.edges.forEach(function(e, ei) {
+            if (e.u !== idx && e.v !== idx) return;
+            const p1 = pos[e.u], p2 = pos[e.v];
+            lineEls[ei].line.setAttribute('x1', p1.x); lineEls[ei].line.setAttribute('y1', p1.y);
+            lineEls[ei].line.setAttribute('x2', p2.x); lineEls[ei].line.setAttribute('y2', p2.y);
+            lineEls[ei].hit.setAttribute('x1', p1.x);  lineEls[ei].hit.setAttribute('y1', p1.y);
+            lineEls[ei].hit.setAttribute('x2', p2.x);  lineEls[ei].hit.setAttribute('y2', p2.y);
+        });
+    }
+
+    // ── Node layer ─────────────────────────────────────────────────────────────
+    const nodesLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svgEl.appendChild(nodesLayer);
+
+    const nodeEls = []; // [{g, circle}]
+
+    for (let i = 0; i < n; i++) {
+        const color = PALETTE[(bIdx * graphData.D + i) % PALETTE.length];
+        const deg   = cg.edges.filter(function(e) { return e.u === i || e.v === i; }).length;
+        const eCnt  = cg.cycleEdges[i].length;
+
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('transform', 'translate(' + pos[i].x + ',' + pos[i].y + ')');
+        g.style.cursor = 'grab';
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', 0); circle.setAttribute('cy', 0);
+        circle.setAttribute('r', NODE_R);
+        circle.style.fill = '#1e2235';
+        circle.style.stroke = color;
+        circle.style.strokeWidth = '2.5';
+
+        const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        lbl.setAttribute('x', 0); lbl.setAttribute('y', 0);
+        lbl.setAttribute('text-anchor', 'middle');
+        lbl.setAttribute('dominant-baseline', 'central');
+        lbl.style.fill = '#e2e8f0';
+        lbl.style.fontSize = '11px';
+        lbl.style.fontWeight = '600';
+        lbl.style.pointerEvents = 'none';
+        lbl.textContent = 'C' + (i + 1);
+
+        const degLbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        degLbl.setAttribute('x', 0);
+        degLbl.setAttribute('y', NODE_R + 12);
+        degLbl.setAttribute('text-anchor', 'middle');
+        degLbl.style.fill = '#64748b';
+        degLbl.style.fontSize = '9px';
+        degLbl.style.pointerEvents = 'none';
+        degLbl.textContent = 'deg ' + deg;
+
+        g.appendChild(circle); g.appendChild(lbl); g.appendChild(degLbl);
+        nodesLayer.appendChild(g);
+        nodeEls.push({ g: g, circle: circle });
+
+        // ── Hover tooltip ──
+        const tipText = 'Cycle ' + (i + 1) + ' – ' + eCnt + ' arête'
+            + (eCnt > 1 ? 's' : '') + ' · deg ' + deg
+            + ' · double-clic pour sélectionner';
+        g.addEventListener('mouseenter', function(ev) {
+            if (cgDragging && cgDragging.idx !== i) return;
+            circle.style.fill = '#2d3580';
+            showCycleGraphTip(ev, tipText);
+        });
+        g.addEventListener('mousemove', moveCycleGraphTip);
+        g.addEventListener('mouseleave', function() {
+            if (cgDragging && cgDragging.idx === i) return;
+            circle.style.fill = '#1e2235';
+            hideCycleGraphTip();
+        });
+
+        // ── Drag start ──
+        (function(nodeIdx, circ, gEl) {
+            g.addEventListener('mousedown', function(ev) {
+                ev.stopPropagation(); ev.preventDefault();
+                const svgRect = svgEl.getBoundingClientRect();
+                cgDragging = {
+                    idx:   nodeIdx,
+                    ox:    ev.clientX - svgRect.left - pos[nodeIdx].x,
+                    oy:    ev.clientY - svgRect.top  - pos[nodeIdx].y,
+                    moved: false
+                };
+                circ.style.fill = '#2d3580';
+                gEl.style.cursor = 'grabbing';
+            });
+        })(i, circle, g);
+
+        // ── Double-clic → select cycle in main view ──
+        (function(cycleIdx) {
+            g.addEventListener('dblclick', function() {
+                cgModalOpen = false;
+                document.getElementById('cycleGraphModal').classList.remove('open');
+                hideCycleGraphTip();
+                const titleEls     = document.querySelectorAll('.basis-title');
+                const cyclesListEls = document.querySelectorAll('.cycles-list');
+                if (!titleEls[bIdx]) return;
+                if (activeBasis !== bIdx) {
+                    toggleBasis(bIdx, titleEls[bIdx], cyclesListEls[bIdx]);
+                }
+                const cycleItems = cyclesListEls[bIdx].querySelectorAll('.cycle-item');
+                if (cycleItems[cycleIdx]) {
+                    selectCycle(bIdx, cycleIdx, cycleItems[cycleIdx]);
+                    cycleItems[cycleIdx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+        })(i);
+    }
+
+    // ── Drag move / release sur window pour ne pas perdre le drag hors du SVG ──
+    function onCgMove(ev) {
+        if (!cgDragging) return;
+        const svgRect = svgEl.getBoundingClientRect();
+        const idx = cgDragging.idx;
+        const nx = ev.clientX - svgRect.left - cgDragging.ox;
+        const ny = ev.clientY - svgRect.top  - cgDragging.oy;
+        cgDragging.moved = true;
+        pos[idx].x = nx; pos[idx].y = ny;
+        nodeEls[idx].g.setAttribute('transform', 'translate(' + nx + ',' + ny + ')');
+        updateEdgesForNode(idx);
+    }
+    function onCgUp() {
+        if (!cgDragging) return;
+        nodeEls[cgDragging.idx].circle.style.fill = '#1e2235';
+        nodeEls[cgDragging.idx].g.style.cursor = 'grab';
+        cgDragging = null;
+    }
+    window.addEventListener('mousemove', onCgMove);
+    window.addEventListener('mouseup',   onCgUp);
+    document.getElementById('cycleGraphClose').addEventListener('click', function() {
+        window.removeEventListener('mousemove', onCgMove);
+        window.removeEventListener('mouseup',   onCgUp);
+    }, { once: true });
+
+    // ── Info bar ──────────────────────────────────────────────────────────────
+    const hasDeg = new Set();
+    cg.edges.forEach(function(e) { hasDeg.add(e.u); hasDeg.add(e.v); });
+    let isolated = 0;
+    for (let i = 0; i < n; i++) { if (!hasDeg.has(i)) isolated++; }
+
+    document.getElementById('cycleGraphInfo').textContent =
+        n + ' cycle' + (n > 1 ? 's' : '') + ' (sommets)  ·  '
+        + cg.edges.length + ' arête' + (cg.edges.length !== 1 ? 's' : '')
+        + (isolated > 0
+            ? '  ·  ' + isolated + ' sommet' + (isolated > 1 ? 's' : '')
+            + ' isolé' + (isolated > 1 ? 's' : '')
+            : '');
+}
+
+// ── Tooltip helpers ────────────────────────────────────────────────────────────
+function showCycleGraphTip(e, text) {
+    const tip = document.getElementById('cycleGraphTooltip');
+    const r   = document.getElementById('cycleGraphSvg').getBoundingClientRect();
+    tip.textContent = text;
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX - r.left + 12) + 'px';
+    tip.style.top  = (e.clientY - r.top  - 32) + 'px';
+}
+function moveCycleGraphTip(e) {
+    const tip = document.getElementById('cycleGraphTooltip');
+    const r   = document.getElementById('cycleGraphSvg').getBoundingClientRect();
+    tip.style.left = (e.clientX - r.left + 12) + 'px';
+    tip.style.top  = (e.clientY - r.top  - 32) + 'px';
+}
+function hideCycleGraphTip() {
+    document.getElementById('cycleGraphTooltip').style.display = 'none';
+}
