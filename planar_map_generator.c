@@ -5,14 +5,8 @@
 #include "graph.h"
 #include "dfs_graph.h"
 
-static void dfs_biconnected(const Graph *g,
-                            int u,
-                            int parent,
-                            int *time,
-                            int *disc,
-                            int *low,
-                            int *visited,
-                            int *has_articulation)
+static void dfs_biconnected(const Graph *g, int u, int parent, int *time, int *disc, int *low,
+    int *visited, int *has_articulation)
 {
     visited[u] = 1;
     disc[u] = low[u] = ++(*time);
@@ -85,7 +79,6 @@ int is_biconnected(const Graph *g)
 
     return !has_articulation;
 }
-
 
 int is_ancestor(const DfsGraph *dfs, const int u, const int v) {
     return dfs->vertices[u].ancestor_start <= dfs->vertices[v].ancestor_start &&
@@ -356,6 +349,17 @@ void y_e(const DfsGraph *dfs, const int e) {
     edge->low2 = best2;
 }
 
+static void print_low_values(const DfsGraph *dfs)
+{
+    for(int e=0;e<dfs->edge_count;e++)
+    {
+        printf("v=%2d low1=%2d low2=%2d\n",
+            e,
+            dfs->edges[e].low1,
+            dfs->edges[e].low2);
+    }
+}
+
 void compute_low_values(const DfsGraph *dfs)  {
 
     for (int i = 0; i < dfs->edge_count; i++) {
@@ -376,6 +380,9 @@ void compute_low_values(const DfsGraph *dfs)  {
     }
 
     free(order);
+
+    printf("\n================ LOW ================\n");
+    print_low_values(dfs);
 }
 
 static int phi_of(const DfsGraph *dfs, const int e) {
@@ -388,6 +395,21 @@ static int phi_of(const DfsGraph *dfs, const int e) {
     edge->singular = edge->low2 >= v ? 1 : 0;
 
     return edge->singular ? 2 * edge->low1 : 2 * edge->low1 + 1;
+}
+
+static void print_phi_lists(const DfsGraph *dfs)
+{
+    printf("\nPhi(v)\n");
+
+    for(int v=0;v<dfs->vertices_count;v++){
+
+        printf("%2d : ",v);
+
+        for(int i=0;i<dfs->vertices[v].nb_out_edges;i++)
+            printf("%d ",dfs->vertices[v].out_edges[i]);
+
+        printf("\n");
+    }
 }
 
 void build_phi_lists(DfsGraph *dfs) {
@@ -467,6 +489,32 @@ void build_phi_lists(DfsGraph *dfs) {
         if (!dfs->edges[i].is_reference) {
             dfs->E0[dfs->E0_size++] = i;
         }
+    }
+
+    printf("\n================ PHI ================\n");
+    print_phi_lists(dfs);
+
+}
+
+static void print_singular_sets(const DfsGraph *dfs)
+{
+    for(int s=0;s<dfs->nb_singular_sets;s++)
+    {
+        printf("S%d : ",s);
+
+        SingularSet *set=&dfs->singular_sets[s];
+
+        for(int i=0;i<set->size;i++)
+        {
+            int e=set->edges[i];
+
+            printf("%d(%d-%d) ",
+                e,
+                dfs->edges[e].from,
+                dfs->edges[e].to);
+        }
+
+        printf("\n");
     }
 }
 
@@ -548,6 +596,10 @@ void build_singular_sets(DfsGraph *dfs) {
             set->edges[set->size++] = edge_id;
         }
     }
+
+    printf("\n================ SINGULAR SETS ================\n");
+    print_singular_sets(dfs);
+
 }
 
 static int uf_find(int *parent, int x) {
@@ -578,8 +630,8 @@ static int get_partner(int *parent, const int *partner, int g) {
  * par la paire unique (a1 U a2, b1 U b2).
  * -1 represente l'ensemble vide.
  */
-static void merge_pairs(int *parent, int *partner,
-                         const int a1, const int b1, const int a2, const int b2) {
+static void merge_pairs(int *parent, int *partner, const int a1, const int b1, const int a2,
+    const int b2) {
     int newA, newB;
 
     if (a1 == -1) newA = (a2 == -1) ? -1 : uf_find(parent, a2);
@@ -598,8 +650,8 @@ static void merge_pairs(int *parent, int *partner,
  * Cas "Bi entrelace X uniquement" (Etape 4, fusion en croix) :
  * remplace (Bi,U) et (X,Y) par (U U X, Bi U Y).
  */
-static void merge_pairs_cross(int *parent, int *partner,
-                               const int Bi, const int U, const int X, const int Y) {
+static void merge_pairs_cross(int *parent, int *partner, const int Bi, const int U, const int X,
+    const int Y) {
     int newFirst, newSecond;
 
     if (U == -1) newFirst = (X == -1) ? -1 : uf_find(parent, X);
@@ -613,7 +665,6 @@ static void merge_pairs_cross(int *parent, int *partner,
     if (newFirst != -1) partner[newFirst] = newSecond;
     if (newSecond != -1) partner[newSecond] = newFirst;
 }
-
 
 static void block_init(Block *b) {
     b->size = 0;
@@ -729,8 +780,7 @@ static void build_back_edge_att(const DfsGraph *dfs, AttList *att, const int e) 
 
 /* applique les regles SAME/DIFF de l'Etape 2 pour le successeur ei,
    met a jour att[ei] (consomme), et renvoie le bloc fusionne Bi */
-static Block step2_build_Bi(const DfsGraph *dfs, AttList *att, const int ei,
-                             const int w_num) {
+static Block step2_build_Bi(const DfsGraph *dfs, AttList *att, const int ei, const int w_num) {
     const int low1_ei = dfs->edges[ei].low1;
 
     int Bi_root = uf_find(dfs->same_parent, ei); /* ei in E0 */
@@ -776,7 +826,7 @@ static Block step2_build_Bi(const DfsGraph *dfs, AttList *att, const int ei,
 /* Etape 3 : fusionne les blocs "hauts" (last > low1_e2) au sommet
    de att[e] en un seul bloc, en propageant SAME/DIFF. */
 static void step3_merge_high_blocks(const DfsGraph *dfs, AttList *att, const int e,
-                                     const int low1_e2, const int n) {
+    const int low1_e2, const int n) {
 
     Block mergedLeft, mergedRight;
     block_init(&mergedLeft);
@@ -830,8 +880,8 @@ static void step3_merge_high_blocks(const DfsGraph *dfs, AttList *att, const int
 }
 
 /* Etape 4 : insere le bloc Bi dans att[e]. */
-static void step4_insert_block(const DfsGraph *dfs, AttList *att, const int e,
-                                Block *Bi, const int low1_ei, const int n) {
+static void step4_insert_block(const DfsGraph *dfs, AttList *att, const int e, Block *Bi,
+    const int low1_ei, const int n) {
 
     if (att[e].size == 0) {
         BlockPair p;
@@ -885,7 +935,6 @@ static void step4_insert_block(const DfsGraph *dfs, AttList *att, const int e,
 static void build_tree_edge_att(const DfsGraph *dfs, AttList *att, const int e) {
 
     if (att == NULL) return;
-
     const int w = dfs->edges[e].to;
     const int w_num = dfs->vertices[w].dfs_num;
     const int n = dfs->vertices_count;
@@ -993,7 +1042,40 @@ void build_SAME_DIFF(DfsGraph *dfs) {
     free(root_of); free(count); free(group_index);
 }
 
-void compute_same_diff(DfsGraph *dfs) {
+static void print_same_sets(const DfsGraph *dfs)
+{
+    for(int g=0;g<dfs->SAME.nb_groups;g++)
+    {
+        printf("G%d : ",g);
+
+        SameGroup *grp=&dfs->SAME.groups[g];
+
+        for(int i=0;i<grp->size;i++)
+        {
+            int e=grp->edges[i];
+
+            printf("%d(%d-%d) ",
+                e,
+                dfs->edges[e].from,
+                dfs->edges[e].to);
+        }
+
+        printf("\n");
+    }
+}
+
+static void print_diff_sets(const DfsGraph *dfs)
+{
+    for(int i=0;i<dfs->DIFF.nb_groups;i++)
+    {
+        int p=dfs->DIFF.partner[i];
+
+        if(p!=-1 && i<p)
+            printf("G%d <-> G%d\n",i,p);
+    }
+}
+
+void compute_same_diff(DfsGraph *dfs)    {
 
     int m = dfs->edge_count;
     dfs->same_parent  = malloc(m * sizeof(int));
@@ -1015,8 +1097,48 @@ void compute_same_diff(DfsGraph *dfs) {
         if (att[i].pairs != NULL) attlist_free(&att[i]);
     free(att);
 
+    printf("\n================ SAME ================\n");
+    print_same_sets(dfs);
+
+    printf("\n================ DIFF ================\n");
+    print_diff_sets(dfs);
+
     /* extraction finale dans dfs->SAME et dfs->DIFF */
     build_SAME_DIFF(dfs);
+}
+
+static void print_same_diff_prime(const DfsGraph *dfs)
+{
+    printf("SAME'\n");
+
+    for(int g=0;g<dfs->SAME_prime.nb_groups;g++)
+    {
+        printf("G'%d : ",g);
+
+        SameGroup *grp=&dfs->SAME_prime.groups[g];
+
+        for(int i=0;i<grp->size;i++)
+        {
+            int e=grp->edges[i];
+
+            printf("%d(%d-%d) ",
+                e,
+                dfs->edges[e].from,
+                dfs->edges[e].to);
+        }
+
+        printf("\n");
+    }
+
+    printf("\nDIFF'\n");
+
+    for(int i=0;i<dfs->DIFF_prime.nb_groups;i++)
+    {
+        int p=dfs->DIFF_prime.partner[i];
+
+        if(p!=-1 && i<p)
+            printf("G'%d <-> G'%d\n",i,p);
+    }
 }
 
 void build_SAME_DIFF_prime(DfsGraph *dfs) {
@@ -1083,6 +1205,26 @@ void build_SAME_DIFF_prime(DfsGraph *dfs) {
     dfs->same_to_prime = new_index;
 
     free(is_rep); free(rep_count);
+
+    printf("\n================ SAME' / DIFF' ================\n");
+    print_same_diff_prime(dfs);
+
+}
+
+static void print_reduced_system(const ReducedSystem *rs)
+{
+    printf("DIFF non triviales\n");
+
+    for(int i=0;i<rs->npairs;i++)
+        printf("G'%d <-> G'%d\n",
+            rs->pair_g1[i],
+            rs->pair_g2[i]);
+
+    printf("\nGroupes libres\n");
+
+    for(int i=0;i<rs->nfree;i++)
+        printf("G'%d\n",
+            rs->free_g[i]);
 }
 
 ReducedSystem build_reduced_system(DfsGraph *dfs) {
@@ -1113,6 +1255,10 @@ ReducedSystem build_reduced_system(DfsGraph *dfs) {
     }
 
     free(done);
+
+    printf("\n================ REDUCED SYSTEM ================\n");
+    print_reduced_system(&rs);
+
     return rs;
 }
 
@@ -1124,17 +1270,22 @@ static void free_reduced_system(ReducedSystem *rs) {
     free(rs->free_g);
 }
 
-static void apply_partition_bits(DfsGraph *dfs, ReducedSystem *rs,
-                                  uint64_t k, DynPartition *part) {
+static void print_rotation_system(const PlanarEmbedding *emb)
+{
+    for(int v=0;v<emb->n;v++)
+    {
+        printf("%2d : ",v);
 
-    /* FIX (bug #4) : side_of_group doit vivre dans l'espace d'indices de
-       SAME' (celui de rs->pair_g1/pair_g2/free_g), pas dans celui de SAME
-       (dfs->SAME.nb_groups). Avant ce correctif, si SAME' avait moins de
-       groupes que SAME (des qu'un groupe SAME ne contenait QUE des membres
-       non-representants d'un ensemble singulier libre), les bits etaient
-       ecrits a un indice puis relus a un autre : resultat silencieusement
-       faux. Le graphe d'exemple du document ne declenche pas ce cas
-       (SAME' = SAME dedans), d'ou le bug invisible jusqu'ici. */
+        for(int i=0;i<emb->rotation_lengths[v];i++)
+            printf("%d ",
+                emb->rotation_system[v][i]);
+
+        printf("\n");
+    }
+}
+
+static void apply_partition_bits(DfsGraph *dfs, ReducedSystem *rs, uint64_t k, DynPartition *part) {
+
     int ngp = dfs->SAME_prime.nb_groups;
     int *side_of_group = malloc(ngp * sizeof(int));
     for (int i = 0; i < ngp; i++) side_of_group[i] = -1;
@@ -1154,8 +1305,8 @@ static void apply_partition_bits(DfsGraph *dfs, ReducedSystem *rs,
     for (int e = 0; e < m; e++) part->side[e] = -1;
 
     for (int i = 0; i < dfs->E0_size; i++) {
-        const int e   = dfs->E0[i];
-        const int gi  = dfs->edge_to_group[e];      /* indice SAME (original) */
+        const int e = dfs->E0[i];
+        const int gi = dfs->edge_to_group[e];      /* indice SAME (original) */
         const int gip = dfs->same_to_prime[gi];     /* -> indice SAME' */
         /* gip == -1 : e est un membre non-representant d'un ensemble
            singulier libre, dont le groupe a disparu de SAME'. Son cote
@@ -1163,14 +1314,11 @@ static void apply_partition_bits(DfsGraph *dfs, ReducedSystem *rs,
            ces arcs et les gere via la variante choisie). */
         part->side[e] = (gip == -1) ? -1 : side_of_group[gip];
     }
-
     free(side_of_group);
 }
 
-void enumerate_partitions(DfsGraph *dfs, ReducedSystem *rs,
-                           void (*callback)(DfsGraph*, DynPartition*,
-                                             uint64_t, void*),
-                           void *ctx) {
+void enumerate_partitions(DfsGraph *dfs, ReducedSystem *rs, void (*callback)(DfsGraph*,
+    DynPartition*, uint64_t, void*), void *ctx) {
     int bits = rs->npairs + rs->nfree;
     uint64_t total = (uint64_t)1 << bits;
 
@@ -1188,8 +1336,7 @@ static int popcount_u(unsigned x) {
     return c;
 }
 
-static void permute_rec(int *arr, const int l, const int r,
-                         void (*cb)(int*, int, void*), void *ctx) {
+static void permute_rec(int *arr, const int l, const int r, void (*cb)(int*, int, void*), void *ctx) {
 
     if (arr==NULL) return;
 
@@ -1252,9 +1399,8 @@ static void emit_with_s1(int *s1perm, int n1, void *ctx) {
 }
 
 /* genere les h(x) variantes d'un ensemble singulier (set->edges[0] = x) */
-void generate_singular_variants(DfsGraph *dfs, SingularSet *set,
-                                 void (*cb)(SingularVariant*, void*),
-                                 void *ctx) {
+void generate_singular_variants(DfsGraph *dfs, SingularSet *set, void (*cb)(SingularVariant*, void*),
+    void *ctx) {
     int g = set->size;
     int rep = set->edges[0];
     int others_n = g - 1;
@@ -1307,9 +1453,8 @@ static int cmp_phi_asc(const void *a, const void *b) {
 
 /* chosen[s] = la SingularVariant choisie pour le set singulier s
    (NULL si non singulier) */
-PartialMap build_Mv_prime(DfsGraph *dfs, DynPartition *part,
-                           SingularVariant **chosen, int *edge_set_id,
-                           int v) {
+PartialMap build_Mv_prime(DfsGraph *dfs, DynPartition *part, SingularVariant **chosen,
+    int *edge_set_id, int v) {
     DfsVertex *vv = &dfs->vertices[v];
     int ref = vv->out_edges[0];
 
@@ -1359,8 +1504,7 @@ PartialMap build_Mv_prime(DfsGraph *dfs, DynPartition *part,
     return m;
 }
 
-static void assign_labels(DfsGraph *dfs, PartialMap *mprime, int v,
-                           int *next_label) {
+static void assign_labels(DfsGraph *dfs, PartialMap *mprime, int v, int *next_label) {
     PartialMap *mv = &mprime[v];
     for (int i = 0; i < mv->n; i++) {
         int e = mv->edges[i];
@@ -1527,6 +1671,9 @@ static void emit_embedding(const VariantCtx *ctx) {
         emb->rotation_lengths[v] = rot[v].n;          /* FIX (bug #7) */
     }
 
+    printf("\n================ ROTATION ================\n");
+    print_rotation_system(emb);
+
     for (int v = 0; v < n; v++) { free(mprime[v].edges); free(rot[v].order); }
     free(mprime); free(rot);
 }
@@ -1561,9 +1708,19 @@ static void variant_recurse(VariantCtx *ctx, int set_idx) {
                                 variant_cb, &vc);
 }
 
+static void print_partition(const DfsGraph *dfs,
+                            const DynPartition *part)
+{
+    for(int g=0;g<dfs->SAME_prime.nb_groups;g++)
+    {
+        printf("G'%d = %d\n",
+            g,
+            part->side[g]);
+    }
+}
+
 /* callback appele a chaque partition reduite (ephemere, voir plus haut) */
-static void on_partition(DfsGraph *dfs, DynPartition *part,
-                          uint64_t k, void *ctx) {
+static void on_partition(DfsGraph *dfs, DynPartition *part, uint64_t k, void *ctx) {
     (void)k;
     EmbedCtx *ec = ctx;
 
@@ -1573,6 +1730,9 @@ static void on_partition(DfsGraph *dfs, DynPartition *part,
     vc.chosen = calloc(dfs->nb_singular_sets, sizeof(SingularVariant*));
     vc.edge_set_id = ec->edge_set_id;
     vc.result = ec->result;
+
+    printf("\n================ h ================\n");
+    print_partition(dfs,part);
 
     variant_recurse(&vc, 0);
 
@@ -1593,6 +1753,7 @@ EmbeddingSet enumerate_embeddings(DfsGraph *dfs) {
     EmbedCtx ec = { dfs, edge_set_id, &result };
 
     ReducedSystem rs = build_reduced_system(dfs);
+    print_reduced_system(&rs);
     enumerate_partitions(dfs, &rs, on_partition, &ec);
     free_reduced_system(&rs);
 
@@ -1634,4 +1795,115 @@ EmbeddingSet generate_all_embeddings(Graph *g)
     free_dfs_graph(dfs);
 
     return result;
+}
+
+/* planar_map_generator.c */
+
+long long factorial(int n) {
+    long long r = 1;
+    for (int i = 2; i <= n; i++) r *= i;
+    return r;
+}
+
+/*
+ * Calcule le nombre theorique de cartes planaires selon le Theoreme 1 de Cai :
+ *
+ *   2^(d+s) x produit_{x in RS} h(x)
+ *
+ * avec :
+ *   d   = nombre de paires non-triviales dans DIFF'
+ *   s   = nombre de groupes libres dans SAME'
+ *   h(x) = g(x)!         si x est "bound"  (tout son ensemble singulier
+ *                                            est dans le meme groupe SAME)
+ *   h(x) = (g(x)+1)! / 2 si x est "free"
+ *   g(x) = taille de l'ensemble singulier de x
+ */
+long long theoretical_embedding_count(const DfsGraph *dfs) {
+
+    /* --- 1. Calculer d et s depuis DIFF' et SAME' --- */
+    int d = 0, s = 0;
+    int ng = dfs->SAME_prime.nb_groups;
+    int *done = calloc(ng, sizeof(int));
+
+    for (int i = 0; i < ng; i++) {
+        if (done[i]) continue;
+        int p = dfs->DIFF_prime.partner[i];
+        if (p == -1) {
+            s++;
+            done[i] = 1;
+        } else {
+            d++;
+            done[i] = 1;
+            done[p] = 1;
+        }
+    }
+    free(done);
+
+    /* --- 2. Calculer le produit des h(x) sur RS --- */
+    long long product = 1;
+
+    for (int si = 0; si < dfs->nb_singular_sets; si++) {
+        const SingularSet *set = &dfs->singular_sets[si];
+        int g_x = set->size;
+
+        /* Le representant est set->edges[0] par convention */
+        int rep = set->edges[0];
+        int gi_rep = dfs->edge_to_group[rep];
+
+        /* x est "bound" si tous les arcs du set sont dans le meme groupe SAME */
+        int is_bound = 1;
+        for (int j = 1; j < set->size; j++) {
+            if (dfs->edge_to_group[set->edges[j]] != gi_rep) {
+                is_bound = 0;
+                break;
+            }
+        }
+
+        long long hx = is_bound ? factorial(g_x)
+                                : factorial(g_x + 1) / 2;
+        product *= hx;
+    }
+
+    /* --- 3. Resultat final --- */
+    long long power = (long long)1 << (d + s);
+    return power * product;
+}
+
+/*
+ * Verifie que actual_count == nombre theorique.
+ * Affiche un rapport et renvoie 1 si OK, 0 sinon.
+ */
+int verify_embedding_count(const DfsGraph *dfs, const int actual_count) {
+
+    long long expected = theoretical_embedding_count(dfs);
+
+    /* Recalculer d et s pour l'affichage */
+    int d = 0, s = 0;
+    int ng = dfs->SAME_prime.nb_groups;
+    int *done = calloc(ng, sizeof(int));
+    for (int i = 0; i < ng; i++) {
+        if (done[i]) continue;
+        int p = dfs->DIFF_prime.partner[i];
+        if (p == -1) { s++; done[i] = 1; }
+        else         { d++; done[i] = 1; done[p] = 1; }
+    }
+    free(done);
+
+    long long prod = expected / ((long long)1 << (d + s));
+
+    printf("=== Verification du nombre de plongements ===\n");
+    printf("  d (paires DIFF non-triviales) = %d\n", d);
+    printf("  s (groupes SAME libres)        = %d\n", s);
+    printf("  2^(d+s)                        = %lld\n", (long long)1 << (d + s));
+    printf("  prod h(x)                      = %lld\n", prod);
+    printf("  Attendu  : %lld\n", expected);
+    printf("  Obtenu   : %d\n",   actual_count);
+
+    if ((long long)actual_count == expected) {
+        printf("  [OK] Compte correct.\n");
+        return 1;
+    }
+    printf("  [ERREUR] Difference de %lld plongements.\n",
+           expected - (long long)actual_count);
+    return 0;
 }

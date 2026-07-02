@@ -215,4 +215,9 @@ void free_dfs_graph(DfsGraph *dfs);
 
 int is_biconnected(const Graph *g);
 
+/* dfs_graph.h - ajouter les prototypes */
+long long factorial(int n);
+long long theoretical_embedding_count(const DfsGraph *dfs);
+int      verify_embedding_count(const DfsGraph *dfs, int actual_count);
+
 #endif

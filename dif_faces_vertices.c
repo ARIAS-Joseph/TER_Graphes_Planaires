@@ -187,6 +187,16 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
     for (int v = 0; v < n; v++) free(visited[v]);
     free(visited);
 
+    printf("\n========== FACES ==========\n");
+    for (int f = 0; f < faces.count; f++) {
+
+        printf("Face %d : ", f);
+
+        print_face_mask(faces.vertices_masks[f], dfs->vertices_count);
+
+        printf("\n");
+    }
+
     return faces;
 }
 
@@ -343,71 +353,71 @@ void find_minimal_never_cofacial(const int nb_vertices, const int nb_edges, cons
 }
 
 
-int main(void) {
-
-    /* Example graph */
-    Graph *g = create_graph();
-    for (int i = 0; i < 6; ++i) create_vertex(g, 0.0, 0.0);
-
-    create_edge(g, 0, 1);
-    create_edge(g, 0, 3);
-    create_edge(g, 0, 5);
-    create_edge(g, 0, 2);
-    create_edge(g, 1, 3);
-    create_edge(g, 2, 1);
-    create_edge(g, 3, 4);
-    create_edge(g, 5, 3);
-    create_edge(g, 5, 4);
-
-    /* Pipeline to compute all embeddings of G */
-    DfsGraph *dfs = build_dfs_graph(g);
-    compute_low_values(dfs);
-    build_phi_lists(dfs);
-    build_singular_sets(dfs);
-    compute_same_diff(dfs);
-    build_SAME_DIFF_prime(dfs);
-    const EmbeddingSet result = enumerate_embeddings(dfs);
-
-    FaceList all_faces;
-    face_list_init(&all_faces);
-
-    /* Creation of the expected outer face if G is outerplanar */
-    const uint64_t all_verts = ((1ULL << g->nb_vertices) - 1);
-    int is_outerplanar = 0;
-
-    for (int i = 0; i < result.count; i++) { /* for every embedding of G */
-        printf("=== Embedding %d ===\n", i + 1);
-
-        FaceList faces = trace_faces(dfs, &result.embeddings[i]);
-
-        for (int f = 0; f < faces.count; f++) {
-            printf("  Face %d : ", f);
-            print_face_mask(faces.vertices_masks[f], dfs->vertices_count);
-            /* Copy the face vertices mask into a global list */
-            face_list_push(&all_faces, faces.vertices_masks[f], faces.edges_masks[f]);
-        }
-        printf("\n");
-
-        if (!is_outerplanar) {
-            for (int f = 0; f < faces.count; f++) {
-                if (faces.vertices_masks[f] == all_verts) {
-                    is_outerplanar = 1;
-                    break;
-                }
-            }
-        }
-
-        fml_free(&faces);
-    }
-
-    printf("%s\n", is_outerplanar ? "outerplanar" : "not outerplanar");
-
-    find_minimal_never_cofacial(dfs->vertices_count, dfs->edge_count, &all_faces);
-
-    fml_free(&all_faces);
-    free_embedding_set((EmbeddingSet *)&result);
-    free_dfs_graph(dfs);
-    delete_graph(g);
-
-    return 0;
-}
+// int main(void) {
+//
+//     /* Example graph */
+//     Graph *g = create_graph();
+//     for (int i = 0; i < 6; ++i) create_vertex(g, 0.0, 0.0);
+//
+//     create_edge(g, 0, 1);
+//     create_edge(g, 0, 3);
+//     create_edge(g, 0, 5);
+//     create_edge(g, 0, 2);
+//     create_edge(g, 1, 3);
+//     create_edge(g, 2, 1);
+//     create_edge(g, 3, 4);
+//     create_edge(g, 5, 3);
+//     create_edge(g, 5, 4);
+//
+//     /* Pipeline to compute all embeddings of G */
+//     DfsGraph *dfs = build_dfs_graph(g);
+//     compute_low_values(dfs);
+//     build_phi_lists(dfs);
+//     build_singular_sets(dfs);
+//     compute_same_diff(dfs);
+//     build_SAME_DIFF_prime(dfs);
+//     const EmbeddingSet result = enumerate_embeddings(dfs);
+//
+//     FaceList all_faces;
+//     face_list_init(&all_faces);
+//
+//     /* Creation of the expected outer face if G is outerplanar */
+//     const uint64_t all_verts = ((1ULL << g->nb_vertices) - 1);
+//     int is_outerplanar = 0;
+//
+//     for (int i = 0; i < result.count; i++) { /* for every embedding of G */
+//         printf("=== Embedding %d ===\n", i + 1);
+//
+//         FaceList faces = trace_faces(dfs, &result.embeddings[i]);
+//
+//         for (int f = 0; f < faces.count; f++) {
+//             printf("  Face %d : ", f);
+//             print_face_mask(faces.vertices_masks[f], dfs->vertices_count);
+//             /* Copy the face vertices mask into a global list */
+//             face_list_push(&all_faces, faces.vertices_masks[f], faces.edges_masks[f]);
+//         }
+//         printf("\n");
+//
+//         if (!is_outerplanar) {
+//             for (int f = 0; f < faces.count; f++) {
+//                 if (faces.vertices_masks[f] == all_verts) {
+//                     is_outerplanar = 1;
+//                     break;
+//                 }
+//             }
+//         }
+//
+//         fml_free(&faces);
+//     }
+//
+//     printf("%s\n", is_outerplanar ? "outerplanar" : "not outerplanar");
+//
+//     find_minimal_never_cofacial(dfs->vertices_count, dfs->edge_count, &all_faces);
+//
+//     fml_free(&all_faces);
+//     free_embedding_set((EmbeddingSet *)&result);
+//     free_dfs_graph(dfs);
+//     delete_graph(g);
+//
+//     return 0;
+// }

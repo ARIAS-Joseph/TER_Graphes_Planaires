@@ -94,7 +94,7 @@ static int embedding_faces_are_mcb(const FaceList *faces, const int D, const int
     if (faces->count != D + 1) {
         printf("embedding_faces_are_mcb: face count %d != basis dimension + 1 (%d)\n",
                faces->count, D + 1);
-        return 0;
+        return -1;
     }   /* Euler sanity check */
 
     int max = 0;
@@ -554,8 +554,9 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
     }
 
     /* ── Step 3 : enumerate embeddings and trace faces ───────────── */
-    EmbeddingSet embs = enumerate_embeddings(dfs);
-    if (embs.count == 0) {
+    const EmbeddingSet embs = enumerate_embeddings(dfs);
+    int good_embedding_nb = verify_embedding_count(dfs, embs.count);
+    if (embs.count == 0 || !good_embedding_nb) {
         free_dfs_graph(dfs); delete_graph(g); trial--; continue;
     }
 
@@ -625,6 +626,7 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
                                ? ((1ULL << g->nb_vertices) - 1)
                                : ~(uint64_t)0;
 
+    int error = 0;
     for (int ei = 0; ei < embs.count; ei++) {
         printf("=== Embedding %d ===\n", ei + 1);
         FaceList faces = trace_faces(dfs, &embs.embeddings[ei]);
@@ -636,9 +638,20 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
          * internal faces are a minimal basis iff their total edge
          * count equals mcb_weight.
          */
-        if (!mcb_matches)
-            if (embedding_faces_are_mcb(&faces, g->minimals_basis[0].dimension, mcb_weight))
+        if (!mcb_matches) {
+            int face_are_mcb = embedding_faces_are_mcb(&faces, g->minimals_basis[0].dimension, mcb_weight);
+            if (face_are_mcb)
                 mcb_matches = 1;
+            if (face_are_mcb == -1) {
+                error = 1;
+                break;
+            }
+        }
+
+        if (error) {
+            trial--;
+            continue;
+        }
 
         if (!is_outerplanar) {
             printf("=== Checking for outerplanarity ===\n");
