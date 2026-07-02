@@ -112,11 +112,11 @@ static int embedding_faces_are_mcb(const FaceList *faces, const int D, const int
     total -= max;
 
     if (total == mcb_weight) return 1;
-    printf("%d %d\n", total, mcb_weight);
-    for (int f = 0; f < faces->count; f++) {
-        if (f == skipped) continue;
-        print_face_mask(faces->vertices_masks[f], 64);
-    }
+    // printf("%d %d\n", total, mcb_weight);
+    // for (int f = 0; f < faces->count; f++) {
+    //     if (f == skipped) continue;
+    //     print_face_mask(faces->vertices_masks[f], 64);
+    // }
     return 0;
 }
 
@@ -225,6 +225,7 @@ static int basis_edge_at_most_2_cycles(const Graph *g, const Minimal_basis *mb) 
     return 1;
 }
 
+/* Regarde si une arete apparait tantot 2 fois tantot3 fois */
 static int edge_two_and_three_appearence(const Graph *g, const Minimal_basis *mbs) {
     int *occurences = calloc(g->nb_edges, sizeof(int));
     for (int mb =0; mb < g->nb_minimal_bases; mb++) {
@@ -244,6 +245,7 @@ static int edge_two_and_three_appearence(const Graph *g, const Minimal_basis *mb
     return 0;
 }
 
+/* Regarde si tantot toutes les aretes sont max 2 fois et parfois non */
 static int diff_edge_occur(const Graph *g, const Minimal_basis *mbs) {
     int all_leq_2 = 1;
     int bcm_all_leq_2 = -1;
@@ -360,34 +362,7 @@ static void save_to_folder(const char *folder, const Graph *g, int id) {
  * Core study loop
  * ========================================================================= */
 
-typedef struct {
-    int nb_v;
-    int nb_e;
-    int faces_can_be_bcm;
-} Point;
-
-typedef struct {
-    Point * points;
-    int nb_point;
-    int capacity;
-} Points;
-
-void points_push(Points *pts,
-                 int n,
-                 int m,
-                 int bcm)
-{
-    if (pts->nb_point == pts->capacity) {
-        pts->capacity = pts->capacity ? 2 * pts->capacity : 128;
-        pts->points = realloc(pts->points,
-                              pts->capacity * sizeof(Point));
-    }
-
-    pts->points[pts->nb_point++] =
-        (Point){n, m, bcm};
-}
-
-void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* points) {
+void study_graph(const int nb_vertex, const int nb_tests, int *id, FILE *f) {
 
     const int min_edges = nb_vertex+1;
     const int max_edges = 3 * nb_vertex - 6 > 64 ? 64 : 3 * nb_vertex - 6;
@@ -494,14 +469,14 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
     printf("n=%d m=%d id=%d", g->nb_vertices, g->nb_edges, *id);
 
     // print neighbors
-    printf("=== Neighbors original graph ===");
-    for (int v=0; v < g->nb_vertices; v++) {
-        printf("\n%d:", v);
-        for (int n=0; n < g->neighbors[v].count; n++) {
-            printf(" %d", g->neighbors[v].neighbors[n]);
-        }
-        printf("\n");
-    }
+    // printf("=== Neighbors original graph ===");
+    // for (int v=0; v < g->nb_vertices; v++) {
+    //     printf("\n%d:", v);
+    //     for (int n=0; n < g->neighbors[v].count; n++) {
+    //         printf(" %d", g->neighbors[v].neighbors[n]);
+    //     }
+    //     printf("\n");
+    // }
 
     /* ── Step 1b : MCB edge-multiplicity filter ─────────────────── */
     const int edges_ok = all_bases_edge_at_most_2(g);
@@ -509,34 +484,34 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
     /* ── Step 2 : build DFS structures ──────────────────────────── */
     DfsGraph *dfs = build_dfs_graph(g);
 
-    printf( "=== DFS parent_edge check ===\n");
-    for (int v = 0; v < dfs->vertices_count; v++) {
-        int pe = dfs->vertices[v].parent_edge;
-        if (pe == -1) {
-            printf( "  v=%d dfs_num=%d  root\n",
-                    v, dfs->vertices[v].dfs_num);
-        } else {
-            int from = dfs->edges[pe].from;
-            int to = dfs->edges[pe].to;
-            int ok = (from == v || to == v);
-            printf("  v=%d dfs_num=%d  parent_edge=%d (%d -> %d) %s\n",
-                    v, dfs->vertices[v].dfs_num,
-                    pe, from, to, ok ? "OK" : "*** WRONG ***");
-        }
-    }
+    // printf( "=== DFS parent_edge check ===\n");
+    // for (int v = 0; v < dfs->vertices_count; v++) {
+    //     int pe = dfs->vertices[v].parent_edge;
+    //     if (pe == -1) {
+    //         printf( "  v=%d dfs_num=%d  root\n",
+    //                 v, dfs->vertices[v].dfs_num);
+    //     } else {
+    //         int from = dfs->edges[pe].from;
+    //         int to = dfs->edges[pe].to;
+    //         int ok = (from == v || to == v);
+    //         printf("  v=%d dfs_num=%d  parent_edge=%d (%d -> %d) %s\n",
+    //                 v, dfs->vertices[v].dfs_num,
+    //                 pe, from, to, ok ? "OK" : "*** WRONG ***");
+    //     }
+    // }
 
     compute_low_values(dfs);
     build_phi_lists(dfs);
-    printf( "=== out_edges (Phi(v)) ===\n");
-    for (int v = 0; v < dfs->vertices_count; v++) {
-        printf( "  Phi(%d): ", v);
-        for (int i = 0; i < dfs->vertices[v].nb_out_edges; i++) {
-            int e = dfs->vertices[v].out_edges[i];
-            printf( "arc%d(%d -> %d) ", e,
-                    dfs->edges[e].from, dfs->edges[e].to);
-        }
-        printf( "\n");
-    }
+    // printf( "=== out_edges (Phi(v)) ===\n");
+    // for (int v = 0; v < dfs->vertices_count; v++) {
+    //     printf( "  Phi(%d): ", v);
+    //     for (int i = 0; i < dfs->vertices[v].nb_out_edges; i++) {
+    //         int e = dfs->vertices[v].out_edges[i];
+    //         printf( "arc%d(%d -> %d) ", e,
+    //                 dfs->edges[e].from, dfs->edges[e].to);
+    //     }
+    //     printf( "\n");
+    // }
 
     build_singular_sets(dfs);
     compute_same_diff(dfs);
@@ -557,7 +532,11 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
     const EmbeddingSet embs = enumerate_embeddings(dfs);
     int good_embedding_nb = verify_embedding_count(dfs, embs.count);
     if (embs.count == 0 || !good_embedding_nb) {
-        free_dfs_graph(dfs); delete_graph(g); trial--; continue;
+        free_embedding_set((EmbeddingSet *)&embs);  /* FIX : fuite mémoire */
+        free_dfs_graph(dfs);
+        delete_graph(g);
+        trial--;
+        continue;
     }
 
     /* DEBUG: validate every arc in every rotation */
@@ -628,39 +607,28 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
 
     int error = 0;
     for (int ei = 0; ei < embs.count; ei++) {
-        printf("=== Embedding %d ===\n", ei + 1);
+        // printf("=== Embedding %d ===\n", ei + 1);
         FaceList faces = trace_faces(dfs, &embs.embeddings[ei]);
 
-        /*
-         * Check whether this embedding's internal faces form a MCB.
-         * We do NOT compare against stored Horton MCBs (those may be
-         * incomplete). Instead, we use the weight criterion directly:
-         * internal faces are a minimal basis iff their total edge
-         * count equals mcb_weight.
-         */
         if (!mcb_matches) {
             int face_are_mcb = embedding_faces_are_mcb(&faces, g->minimals_basis[0].dimension, mcb_weight);
             if (face_are_mcb)
                 mcb_matches = 1;
             if (face_are_mcb == -1) {
+                fml_free(&faces);
                 error = 1;
                 break;
             }
         }
 
-        if (error) {
-            trial--;
-            continue;
-        }
-
         if (!is_outerplanar) {
-            printf("=== Checking for outerplanarity ===\n");
+            // printf("=== Checking for outerplanarity ===\n");
             for (int f = 0; f < faces.count; f++) {
-                print_face_mask(faces.vertices_masks[f], g->nb_vertices);
+                // print_face_mask(faces.vertices_masks[f], g->nb_vertices);
                 if (faces.vertices_masks[f] == all_verts) {
                     is_outerplanar = 1;
                     mcb_matches = 1;
-                    printf("outerplanar");
+                    // printf("outerplanar");
                     break;}
             }
         }
@@ -673,6 +641,15 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
         fml_free(&faces);
     }
 
+    /* Si une erreur est survenue, on abandonne complètement ce graphe */
+    if (error) {
+        free_embedding_set(&embs);
+        free_dfs_graph(dfs);
+        delete_graph(g);
+        trial--;
+        continue;
+    }
+
     /* ── Step 4 : never-co-facial search ───────────────────────── */
     const int nb_no_cofacial = count_minimal_never_cofacial(g->nb_vertices,
                                                        &all_faces);
@@ -680,20 +657,29 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
 
     /* ── Step 5 : save ─────────────────────────────────────────── */
 
+    int edge_change_nb_appearence = 0;
+    int diff_edge = 0;
     if (!mcb_matches) {
         save_to_folder("BCM_no_face", g, *id);
+        edge_change_nb_appearence = edge_two_and_three_appearence(g, g->minimals_basis);
+        diff_edge = diff_edge_occur(g, g->minimals_basis);
         if (edges_ok) save_to_folder("BCM_no_face_interesting", g, *id);
-        if (edge_two_and_three_appearence(g, g->minimals_basis)) save_to_folder("No_BCM_face_edge_diff_appearence", g, *id);
-        if (diff_edge_occur(g, g->minimals_basis)) save_to_folder("No_BCM_face_diff_edge_occur", g, *id);
+        if (edge_change_nb_appearence) save_to_folder("No_BCM_face_1_edge_can_appear_2_or_3", g, *id);
+        if (diff_edge) save_to_folder("No_BCM_face_all_edges_appear_2_somtimes_3", g, *id);
     }
 
     if (nb_no_cofacial == 0 && !is_outerplanar)
         save_to_folder("pour_chloe", g, *id);
 
-    points_push(points,
-        g->nb_vertices,
-        g->nb_edges,
-        mcb_matches);
+    fprintf(f,"%d,%d,%d,%d,%d,%d,%d,%d\n",
+    *id,
+    nb_vertex,
+    dfs->edge_count,
+    is_outerplanar,
+    mcb_matches,
+    edges_ok,
+    edge_change_nb_appearence,
+    diff_edge);
 
     (*id)++;
 
@@ -705,33 +691,21 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, Points* point
     }
 }
 
-/* =========================================================================
- * Entry point
- * ========================================================================= */
-
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     srand((unsigned int)time(NULL));
 
-    Points points = (Points){ .points = NULL, .nb_point = 0, .capacity = 0 };
+    FILE *f = fopen("graphs.csv", "w");
+
+    fprintf(f,
+    "id,|V|,|E|,is_outerplanar,faces_can_be_MCB, max_appearence_edge_always_2,"
+    "1_edge_can_appear_2_or_3,all_edges_appear_2_somtimes_3\n");
 
     int id = 0;
     for (int n = 6; n <= 14; n++) {
         printf( "n = %d ...\n", n);
-        study_graph(n, 1000, &id, &points);
-    }
-
-    FILE *f = fopen("points.csv", "w");
-
-    fprintf(f, "n,m,bcm\n");
-
-    for (int i = 0; i < points.nb_point; i++) {
-        fprintf(f,
-                "%d,%d,%d\n",
-                points.points[i].nb_v,
-                points.points[i].nb_e,
-                points.points[i].faces_can_be_bcm);
+        study_graph(n, 1000, &id, f);
     }
 
     fclose(f);

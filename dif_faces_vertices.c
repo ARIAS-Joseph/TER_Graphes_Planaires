@@ -187,15 +187,17 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
     for (int v = 0; v < n; v++) free(visited[v]);
     free(visited);
 
-    printf("\n========== FACES ==========\n");
-    for (int f = 0; f < faces.count; f++) {
-
-        printf("Face %d : ", f);
-
-        print_face_mask(faces.vertices_masks[f], dfs->vertices_count);
-
-        printf("\n");
-    }
+    // printf("\n========== FACES ==========\n");
+    // printf("Euler : %d - %d + %d = %d\n",
+    //    n,dfs->edge_count,faces.count,n-dfs->edge_count+faces.count);
+    // for (int f = 0; f < faces.count; f++) {
+    //
+    //     printf("Face %d : ", f);
+    //
+    //     print_face_mask(faces.vertices_masks[f], dfs->vertices_count);
+    //
+    //     printf("\n");
+    // }
 
     return faces;
 }
@@ -359,15 +361,15 @@ void find_minimal_never_cofacial(const int nb_vertices, const int nb_edges, cons
 //     Graph *g = create_graph();
 //     for (int i = 0; i < 6; ++i) create_vertex(g, 0.0, 0.0);
 //
-//     create_edge(g, 0, 1);
+//     create_edge(g, 0, 2);
 //     create_edge(g, 0, 3);
 //     create_edge(g, 0, 5);
-//     create_edge(g, 0, 2);
-//     create_edge(g, 1, 3);
-//     create_edge(g, 2, 1);
+//     create_edge(g, 1, 2);
+//     create_edge(g, 1, 5);
+//     create_edge(g, 2, 3);
+//     create_edge(g, 2, 4);
+//     create_edge(g, 5, 2);
 //     create_edge(g, 3, 4);
-//     create_edge(g, 5, 3);
-//     create_edge(g, 5, 4);
 //
 //     /* Pipeline to compute all embeddings of G */
 //     DfsGraph *dfs = build_dfs_graph(g);

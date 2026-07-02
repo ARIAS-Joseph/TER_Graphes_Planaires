@@ -1726,6 +1726,7 @@ void multiple_horton(Graph *g, int *inv_edges, int * inv_vertices, const int max
     }
 
     free(perm_edges);
+    free(perm_vertices);
 
     /* If Horton never found the face basis, try adding it explicitly. */
     if (g->face_basis < 0)
