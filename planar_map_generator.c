@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -139,16 +140,16 @@ static void dfs_visit(Graph *graph, DfsGraph *dfs, const int u, int *visited, in
 
     /* À ajouter au tout début de dfs_visit, dans planar_map_generator.c,
  * juste après `visited[u] = 1;` */
-    // if (dfs_visit_call_count++ == 0) {
-    //     /* Premier appel = visite de la racine : dump complet ici */
-    //     printf("=== Neighbors AS SEEN BY dfs_visit (live) ===\n");
-    //     for (int vv = 0; vv < graph->nb_vertices; vv++) {
-    //         printf("%d:", vv);
-    //         for (int i = 0; i < graph->neighbors[vv].count; i++)
-    //             printf(" %d", graph->neighbors[vv].neighbors[i]);
-    //         printf("\n");
-    //     }
-    // }
+    if (dfs_visit_call_count++ == 0) {
+        /* Premier appel = visite de la racine : dump complet ici */
+        printf("=== Neighbors AS SEEN BY dfs_visit (live) ===\n");
+        for (int vv = 0; vv < graph->nb_vertices; vv++) {
+            printf("%d:", vv);
+            for (int i = 0; i < graph->neighbors[vv].count; i++)
+                printf(" %d", graph->neighbors[vv].neighbors[i]);
+            printf("\n");
+        }
+    }
 
     DfsVertex *vu = &dfs->vertices[u];
 
@@ -173,11 +174,12 @@ static void dfs_visit(Graph *graph, DfsGraph *dfs, const int u, int *visited, in
             const int edge_id = graph->edge_indices[u * graph->nb_vertices + v];
             add_dfs_edge(dfs, u, v, edge_id, TREE_EDGE);
             dfs->vertices[v].parent_edge = edge_id;
+
             /* DEBUG */
-            // printf( "  dfs_visit: set parent_edge[%d] = arc %d (%d -> %d)\n",
-            //         v, edge_id,
-            //         dfs->edges[edge_id].from,
-            //         dfs->edges[edge_id].to);
+            printf( "  dfs_visit: set parent_edge[%d] = arc %d (%d -> %d)\n",
+                    v, edge_id,
+                    dfs->edges[edge_id].from,
+                    dfs->edges[edge_id].to);
 
             out_edges[nb_out_edges++] = edge_id;
 
@@ -382,8 +384,8 @@ void compute_low_values(const DfsGraph *dfs)  {
 
     free(order);
 
-    // printf("\n================ LOW ================\n");
-    // print_low_values(dfs);
+    printf("\n================ LOW ================\n");
+    print_low_values(dfs);
 }
 
 static int phi_of(const DfsGraph *dfs, const int e) {
@@ -492,8 +494,8 @@ void build_phi_lists(DfsGraph *dfs) {
         }
     }
 
-    // printf("\n================ PHI ================\n");
-    // print_phi_lists(dfs);
+    printf("\n================ PHI ================\n");
+    print_phi_lists(dfs);
 
 }
 
@@ -597,8 +599,8 @@ void build_singular_sets(DfsGraph *dfs) {
         }
     }
 
-    // printf("\n================ SINGULAR SETS ================\n");
-    // print_singular_sets(dfs);
+    printf("\n================ SINGULAR SETS ================\n");
+    print_singular_sets(dfs);
 
 }
 
@@ -611,10 +613,30 @@ static int uf_find(int *parent, int x) {
 }
 
 /* Union SAME pure (sans toucher au partner) */
-static void uf_union(int *parent, const int x, const int y) {
-    const int rx = uf_find(parent, x);
-    const int ry = uf_find(parent, y);
-    if (rx != ry) parent[rx] = ry;
+static void uf_union(int *parent, int x, int y)
+{
+    int rx = uf_find(parent,x);
+    int ry = uf_find(parent,y);
+
+    if (rx != ry)
+        parent[rx]=ry;
+}
+
+static void set_partner(int *partner, int a, int b)
+{
+    printf("SET partner[%d]=%d\n", a, b);
+
+    if (a != -1 && partner[a] != -1)
+        partner[partner[a]] = -1;
+
+    if (b != -1 && partner[b] != -1)
+        partner[partner[b]] = -1;
+
+    if (a != -1)
+        partner[a] = b;
+
+    if (b != -1)
+        partner[b] = a;
 }
 
 /* partner(g) -- renvoie -1 si g est "libre" (pas de contrainte DIFF) */
@@ -625,20 +647,57 @@ static int get_partner(int *parent, const int *partner, int g) {
     return uf_find(parent, partner[r]);
 }
 
-/*
- * Remplace les deux paires DIFF (a1,b1) et (a2,b2)
- * par la paire unique (a1 U a2, b1 U b2).
- * -1 represente l'ensemble vide.
- */
-static void merge_pairs(int *parent, int *partner, const int a1, const int b1, const int a2,
-    const int b2) {
+static int nb_edge = -1;
+
+/* Toujours utiliser cette fonction pour lire un representant de bloc */
+static int get_rep(int *parent, int rep) {
+    if (rep == -1) return -1;
+    return uf_find(parent, rep);
+}
+
+/* Rafraichir tous les representants d'une AttList */
+static void attlist_refresh_reps(AttList *l, int *parent) {
+    for (int i = 0; i < l->size; i++) {
+        if (l->pairs[i].left.representative != -1)
+            l->pairs[i].left.representative =
+                uf_find(parent, l->pairs[i].left.representative);
+        if (l->pairs[i].right.representative != -1)
+            l->pairs[i].right.representative =
+                uf_find(parent, l->pairs[i].right.representative);
+    }
+}
+
+/* Invalide proprement une association partner, en nettoyant les deux sens */
+static void clear_partner(int *partner, int root) {
+    if (root == -1) return;
+    int old_p = partner[root];
+    if (old_p != -1) partner[old_p] = -1;
+    partner[root] = -1;
+}
+
+static void merge_pairs(int *parent, int *partner,
+                        const int a1, const int b1,
+                        const int a2, const int b2) {
+
+    /* Racines actuelles AVANT toute union */
+    int ra  = (a1 != -1) ? uf_find(parent, a1) : -1;
+    int rb  = (b1 != -1) ? uf_find(parent, b1) : -1;
+    int ra2 = (a2 != -1) ? uf_find(parent, a2) : -1;
+    int rb2 = (b2 != -1) ? uf_find(parent, b2) : -1;
+
+    /* Vider les paires symetriques existantes des 4 groupes */
+    clear_partner(partner, ra);
+    clear_partner(partner, rb);
+    clear_partner(partner, ra2);
+    clear_partner(partner, rb2);
+
     int newA, newB;
 
-    if (a1 == -1) newA = (a2 == -1) ? -1 : uf_find(parent, a2);
+    if (a1 == -1)      newA = (a2 == -1) ? -1 : uf_find(parent, a2);
     else if (a2 == -1) newA = uf_find(parent, a1);
     else { uf_union(parent, a1, a2); newA = uf_find(parent, a1); }
 
-    if (b1 == -1) newB = (b2 == -1) ? -1 : uf_find(parent, b2);
+    if (b1 == -1)      newB = (b2 == -1) ? -1 : uf_find(parent, b2);
     else if (b2 == -1) newB = uf_find(parent, b1);
     else { uf_union(parent, b1, b2); newB = uf_find(parent, b1); }
 
@@ -646,23 +705,31 @@ static void merge_pairs(int *parent, int *partner, const int a1, const int b1, c
     if (newB != -1) partner[newB] = newA;
 }
 
-/*
- * Cas "Bi entrelace X uniquement" (Etape 4, fusion en croix) :
- * remplace (Bi,U) et (X,Y) par (U U X, Bi U Y).
- */
-static void merge_pairs_cross(int *parent, int *partner, const int Bi, const int U, const int X,
-    const int Y) {
+static void merge_pairs_cross(int *parent, int *partner,
+                               const int Bi, const int U,
+                               const int X,  const int Y) {
+
+    int rBi = (Bi != -1) ? uf_find(parent, Bi) : -1;
+    int rU  = (U  != -1) ? uf_find(parent, U)  : -1;
+    int rX  = (X  != -1) ? uf_find(parent, X)  : -1;
+    int rY  = (Y  != -1) ? uf_find(parent, Y)  : -1;
+
+    clear_partner(partner, rBi);
+    clear_partner(partner, rU);
+    clear_partner(partner, rX);
+    clear_partner(partner, rY);
+
     int newFirst, newSecond;
 
-    if (U == -1) newFirst = (X == -1) ? -1 : uf_find(parent, X);
+    if (U == -1)      newFirst = (X == -1) ? -1 : uf_find(parent, X);
     else if (X == -1) newFirst = uf_find(parent, U);
     else { uf_union(parent, U, X); newFirst = uf_find(parent, U); }
 
-    if (Bi == -1) newSecond = (Y == -1) ? -1 : uf_find(parent, Y);
+    if (Bi == -1)     newSecond = (Y == -1) ? -1 : uf_find(parent, Y);
     else if (Y == -1) newSecond = uf_find(parent, Bi);
     else { uf_union(parent, Bi, Y); newSecond = uf_find(parent, Bi); }
 
-    if (newFirst != -1) partner[newFirst] = newSecond;
+    if (newFirst  != -1) partner[newFirst]  = newSecond;
     if (newSecond != -1) partner[newSecond] = newFirst;
 }
 
@@ -778,6 +845,29 @@ static void build_back_edge_att(const DfsGraph *dfs, AttList *att, const int e) 
     attlist_push_back(&att[e], p);
 }
 
+static void check_same_diff(const DfsGraph *dfs) {
+    for (int i = 0; i < dfs->edge_count; i++) {
+
+        if (dfs->same_parent[i] != i)
+            continue;
+
+        int p = dfs->same_partner[i];
+
+        if (p != -1) {
+            printf("p=%d parent[p]=%d\n", p, dfs->same_parent[p]);
+            printf("\n===== SAME / DIFF =====\n");
+            for (int i = 0; i < dfs->edge_count; i++) {
+                printf("edge %2d : parent=%2d partner=%2d\n",
+                       i,
+                       dfs->same_parent[i],
+                       dfs->same_partner[i]);
+            }
+            assert(dfs->same_parent[p] == p);
+            assert(dfs->same_partner[p] == i);
+        }
+    }
+}
+
 /* applique les regles SAME/DIFF de l'Etape 2 pour le successeur ei,
    met a jour att[ei] (consomme), et renvoie le bloc fusionne Bi */
 static Block step2_build_Bi(const DfsGraph *dfs, AttList *att, const int ei, const int w_num) {
@@ -787,8 +877,14 @@ static Block step2_build_Bi(const DfsGraph *dfs, AttList *att, const int ei, con
 
     AttList *li = &att[ei];
     for (int p = 0; p < li->size; p++) {
-        const Block *Lx = &li->pairs[p].left;
-        const Block *Ly = &li->pairs[p].right;
+        Block *Lx = &li->pairs[p].left;
+        Block *Ly = &li->pairs[p].right;
+
+        /* Rafraichir avant toute lecture */
+        if (Lx->representative != -1)
+            Lx->representative = uf_find(dfs->same_parent, Lx->representative);
+        if (Ly->representative != -1)
+            Ly->representative = uf_find(dfs->same_parent, Ly->representative);
 
         /* [X,Y] avec X=left,Y=right */
         if (block_is_normal(Lx, low1_ei, w_num) && Lx->representative != -1) {
@@ -796,7 +892,15 @@ static Block step2_build_Bi(const DfsGraph *dfs, AttList *att, const int ei, con
             const int Y = (Ly->representative == -1) ? -1
                      : uf_find(dfs->same_parent, Ly->representative);
             const int U = get_partner(dfs->same_parent, dfs->same_partner, Bi_root);
+            nb_edge = dfs->edge_count;
+            printf("Bi=%d U=%d X=%d Y=%d\n",
+       Bi_root,
+       U,
+       X,
+       Y);
             merge_pairs(dfs->same_parent, dfs->same_partner, Bi_root, U, X, Y);
+
+            check_same_diff(dfs);
             Bi_root = uf_find(dfs->same_parent, Bi_root);
         }
         /* [Y,X] avec X=right,Y=left */
@@ -805,7 +909,14 @@ static Block step2_build_Bi(const DfsGraph *dfs, AttList *att, const int ei, con
             const int Y = (Lx->representative == -1) ? -1
                      : uf_find(dfs->same_parent, Lx->representative);
             const int U = get_partner(dfs->same_parent, dfs->same_partner, Bi_root);
+            nb_edge = dfs->edge_count;
+            printf("Bi=%d U=%d X=%d Y=%d\n",
+       Bi_root,
+       U,
+       X,
+       Y);
             merge_pairs(dfs->same_parent, dfs->same_partner, Bi_root, U, X, Y);
+            check_same_diff(dfs);
             Bi_root = uf_find(dfs->same_parent, Bi_root);
         }
     }
@@ -844,20 +955,26 @@ static void step3_merge_high_blocks(const DfsGraph *dfs, AttList *att, const int
         }
 
         if (has_merge) {
-            const int X = mergedLeft.representative;
-            const int Y = mergedRight.representative;
-            const int X1 = top->left.representative;
-            const int Y1 = top->right.representative;
+            const int X  = mergedLeft.representative;
+            const int Y  = mergedRight.representative;
+            const int X1 = top->left.representative  != -1
+                           ? uf_find(dfs->same_parent, top->left.representative)  : -1;
+            const int Y1 = top->right.representative != -1
+                           ? uf_find(dfs->same_parent, top->right.representative) : -1;
             merge_pairs(dfs->same_parent, dfs->same_partner, X, Y, X1, Y1);
             mergedLeft.representative =
-                (X != -1) ? uf_find(dfs->same_parent, X)
-                          : ((X1 != -1) ? uf_find(dfs->same_parent, X1) : -1);
+                (X != -1)  ? uf_find(dfs->same_parent, X)
+                           : ((X1 != -1) ? uf_find(dfs->same_parent, X1) : -1);
             mergedRight.representative =
-                (Y != -1) ? uf_find(dfs->same_parent, Y)
-                          : ((Y1 != -1) ? uf_find(dfs->same_parent, Y1) : -1);
+                (Y != -1)  ? uf_find(dfs->same_parent, Y)
+                           : ((Y1 != -1) ? uf_find(dfs->same_parent, Y1) : -1);
         } else {
-            mergedLeft.representative = top->left.representative;
-            mergedRight.representative = top->right.representative;
+            mergedLeft.representative =
+                top->left.representative != -1
+                ? uf_find(dfs->same_parent, top->left.representative) : -1;
+            mergedRight.representative =
+                top->right.representative != -1
+                ? uf_find(dfs->same_parent, top->right.representative) : -1;
             has_merge = 1;
         }
 
@@ -880,8 +997,12 @@ static void step3_merge_high_blocks(const DfsGraph *dfs, AttList *att, const int
 }
 
 /* Etape 4 : insere le bloc Bi dans att[e]. */
-static void step4_insert_block(const DfsGraph *dfs, AttList *att, const int e, Block *Bi,
-    const int low1_ei, const int n) {
+static void step4_insert_block(const DfsGraph *dfs, AttList *att, const int e,
+                                Block *Bi, const int low1_ei, const int n) {
+
+    /* Rafraichir le representant de Bi */
+    if (Bi->representative != -1)
+        Bi->representative = uf_find(dfs->same_parent, Bi->representative);
 
     if (att[e].size == 0) {
         BlockPair p;
@@ -895,25 +1016,33 @@ static void step4_insert_block(const DfsGraph *dfs, AttList *att, const int e, B
     }
 
     BlockPair *top = &att[e].pairs[att[e].size - 1];
+
+    /* Rafraichir les representants de la paire de tete */
+    if (top->left.representative != -1)
+        top->left.representative = uf_find(dfs->same_parent, top->left.representative);
+    if (top->right.representative != -1)
+        top->right.representative = uf_find(dfs->same_parent, top->right.representative);
+
     const int interlaceX = (low1_ei < block_last(&top->left, n));
     const int interlaceY = (low1_ei < block_last(&top->right, n));
-
-    const int U = get_partner(dfs->same_parent, dfs->same_partner,
-                         Bi->representative);
+    const int U = get_partner(dfs->same_parent, dfs->same_partner, Bi->representative);
 
     if (interlaceX && interlaceY) {
-        /* non planaire : on ignore (suppose deja planaire en entree) */
         block_free(Bi);
         return;
     }
 
     if (interlaceX) {
-        /* fusion Bi dans Y, en croix : (U,X) <- (Bi,Y) */
         block_concat(&top->right, Bi);
         merge_pairs_cross(dfs->same_parent, dfs->same_partner,
                            Bi->representative, U,
                            top->left.representative,
                            top->right.representative);
+        /* Rafraichir apres la fusion */
+        if (top->left.representative != -1)
+            top->left.representative = uf_find(dfs->same_parent, top->left.representative);
+        if (top->right.representative != -1)
+            top->right.representative = uf_find(dfs->same_parent, top->right.representative);
         if (block_last(&top->left, n) < block_last(&top->right, n)) {
             Block tmp = top->left;
             top->left = top->right;
@@ -923,12 +1052,41 @@ static void step4_insert_block(const DfsGraph *dfs, AttList *att, const int e, B
         return;
     }
 
-    /* Bi n'entrelace ni X ni Y : nouvelle paire au sommet */
     BlockPair newp;
     newp.left = *Bi;
     block_init(&newp.right);
     newp.right.representative = U;
     attlist_push_back(&att[e], newp);
+}
+
+static void check_att(const DfsGraph *dfs, AttList *att) {
+
+    for (int e = 0; e < dfs->edge_count; e++) {
+
+        for (int p = 0; p < att[e].size; p++) {
+
+            Block *b[2] = {
+                &att[e].pairs[p].left,
+                &att[e].pairs[p].right
+            };
+
+            for (int k = 0; k < 2; k++) {
+
+                if (b[k]->representative == -1)
+                    continue;
+
+                assert(
+                    dfs->same_parent[
+                        uf_find(dfs->same_parent,
+                                b[k]->representative)
+                    ]
+                    ==
+                    uf_find(dfs->same_parent,
+                            b[k]->representative)
+                );
+            }
+        }
+    }
 }
 
 /* Construit att(e) pour un arc d'arbre e=[v,w] */
@@ -972,13 +1130,19 @@ static void build_tree_edge_att(const DfsGraph *dfs, AttList *att, const int e) 
     const int e2 = vw->out_edges[1];
     step3_merge_high_blocks(dfs, att, e, dfs->edges[e2].low1, n);
 
+    /* Rafraichir TOUS les representants de att[e] avant l'etape 4 */
+    attlist_refresh_reps(&att[e], dfs->same_parent);
+
     /* Etape 4 */
     for (int i = 1; i < k; i++) {
         const int ei = vw->out_edges[i];
-        step4_insert_block(dfs, att, e, &Bs[i - 1],
-                            dfs->edges[ei].low1, n);
+        /* Rafraichir Bs[i-1] aussi */
+        if (Bs[i-1].representative != -1)
+            Bs[i-1].representative = uf_find(dfs->same_parent, Bs[i-1].representative);
+        step4_insert_block(dfs, att, e, &Bs[i-1], dfs->edges[ei].low1, n);
     }
     free(Bs);
+    check_att(dfs, att);
 }
 
 /* parcours recursif simple (suffisant pour des graphes raisonnables) */
@@ -1103,11 +1267,11 @@ void compute_same_diff(DfsGraph *dfs)    {
         if (att[i].pairs != NULL) attlist_free(&att[i]);
     free(att);
 
-    // printf("\n================ SAME ================\n");
-    // print_same_sets(dfs);
-    //
-    // printf("\n================ DIFF ================\n");
-    // print_diff_sets(dfs);
+    printf("\n================ SAME ================\n");
+    print_same_sets(dfs);
+
+    printf("\n================ DIFF ================\n");
+    print_diff_sets(dfs);
 
     /* extraction finale dans dfs->SAME et dfs->DIFF */
     build_SAME_DIFF(dfs);
@@ -1229,9 +1393,9 @@ void build_SAME_DIFF_prime(DfsGraph *dfs) {
 
     free(is_rep); free(rep_count);
 
-    // print_E0(dfs);
-    // printf("\n================ SAME' / DIFF' ================\n");
-    // print_same_diff_prime(dfs);
+    print_E0(dfs);
+    printf("\n================ SAME' / DIFF' ================\n");
+    print_same_diff_prime(dfs);
 
 }
 
@@ -1302,8 +1466,8 @@ ReducedSystem build_reduced_system(DfsGraph *dfs) {
 
     free(done);
 
-    // printf("\n================ REDUCED SYSTEM ================\n");
-    // print_reduced_system(dfs,&rs);
+    printf("\n================ REDUCED SYSTEM ================\n");
+    print_reduced_system(dfs,&rs);
 
     return rs;
 }
@@ -1370,13 +1534,15 @@ void enumerate_partitions(DfsGraph *dfs, ReducedSystem *rs, void (*callback)(Dfs
 
     for (uint64_t k = 0; k < total; k++) {
         DynPartition part;
-       //  printf("\n========== k = %llu ==========\n",
-       // (unsigned long long)k);
-       //
-       //  for(int b=bits-1;b>=0;b--)
-       //      printf("%d", (int)((k>>b)&1));
-       //
-       //  printf("\n");
+
+        printf("\n========== k = %llu ==========\n",
+       (unsigned long long)k);
+
+        for(int b=bits-1;b>=0;b--)
+            printf("%d", (int)((k>>b)&1));
+
+        printf("\n");
+
         apply_partition_bits(dfs, rs, k, &part);
         callback(dfs, &part, k, ctx);
         free(part.side);
@@ -1442,8 +1608,21 @@ typedef struct {
 
 static void emit_with_s1(int *s1perm, int n1, void *ctx) {
     S1Ctx *c = ctx;
-    S2Ctx c2; c2.s1 = s1perm; c2.s1n = n1;
-    c2.user_cb = c->user_cb; c2.user_ctx = c->user_ctx;
+
+    /* S2 vide : emettre directement sans passer par permute_rec */
+    if (c->s2n == 0) {
+        SingularVariant v;
+        v.left  = s1perm; v.nleft  = n1;
+        v.right = NULL;   v.nright = 0;
+        c->user_cb(&v, c->user_ctx);
+        return;
+    }
+
+    S2Ctx c2;
+    c2.s1      = s1perm;
+    c2.s1n     = n1;
+    c2.user_cb  = c->user_cb;
+    c2.user_ctx = c->user_ctx;
 
     int *s2copy = malloc(c->s2n * sizeof(int));
     memcpy(s2copy, c->s2, c->s2n * sizeof(int));
@@ -1452,15 +1631,27 @@ static void emit_with_s1(int *s1perm, int n1, void *ctx) {
 }
 
 /* genere les h(x) variantes d'un ensemble singulier (set->edges[0] = x) */
-void generate_singular_variants(DfsGraph *dfs, SingularSet *set, void (*cb)(SingularVariant*, void*),
-    void *ctx) {
-    int g = set->size;
+void generate_singular_variants(DfsGraph *dfs, SingularSet *set,
+                                 void (*cb)(SingularVariant*, void*),
+                                 void *ctx) {
+    int g   = set->size;
     int rep = set->edges[0];
+
+    /* Cas trivial : ensemble singleton → un seul variant possible */
+    if (g == 1) {
+        SingularVariant v;
+        v.left  = &set->edges[0]; v.nleft  = 1;
+        v.right = NULL;            v.nright = 0;
+        cb(&v, ctx);
+        return;
+    }
+
     int others_n = g - 1;
-    int *others = malloc(others_n * sizeof(int));
+    int *others  = malloc(others_n * sizeof(int));
     for (int i = 0; i < others_n; i++) others[i] = set->edges[i + 1];
 
     if (singular_is_bound(dfs, set)) {
+        /* h(x) = g! variantes : toutes les permutations du bloc entier */
         int *block = malloc(g * sizeof(int));
         block[0] = rep;
         for (int i = 0; i < others_n; i++) block[i + 1] = others[i];
@@ -1469,20 +1660,27 @@ void generate_singular_variants(DfsGraph *dfs, SingularSet *set, void (*cb)(Sing
         permute_rec(block, 0, g - 1, emit_bound, &bc);
         free(block);
     } else {
+        /* h(x) = (g+1)!/2 variantes : enumerate les sous-ensembles S2 */
         for (unsigned mask = 0; mask < (1u << others_n); mask++) {
-            int k = popcount_u(mask);
-            int s1n = g - k, s2n = k;
+            int k   = __builtin_popcount(mask);
+            int s1n = g - k;
+            int s2n = k;
+
             int *s1 = malloc(s1n * sizeof(int));
-            int *s2 = malloc(s2n * sizeof(int));
+            int *s2 = s2n > 0 ? malloc(s2n * sizeof(int)) : NULL;
+
             int i1 = 0, i2 = 0;
             s1[i1++] = rep;
             for (int i = 0; i < others_n; i++) {
                 if (mask & (1u << i)) s2[i2++] = others[i];
-                else s1[i1++] = others[i];
+                else                  s1[i1++] = others[i];
             }
+
             S1Ctx c1 = { s2, s2n, cb, ctx };
             permute_rec(s1, 0, s1n - 1, emit_with_s1, &c1);
-            free(s1); free(s2);
+
+            free(s1);
+            free(s2);
         }
     }
     free(others);
@@ -1742,10 +1940,18 @@ static void emit_embedding(const VariantCtx *ctx) {
         emb->rotation_lengths[v] = rot[v].n;          /* FIX (bug #7) */
     }
 
-    // printf("\n================ ROTATION ================\n");
-    // print_rotation_system(emb);
-    //
-    // check_rotation(dfs, emb);
+    printf("\n===== M' =====\n");
+    for (int v = 0; v < n; v++) {
+        printf("v=%d :", v);
+        for (int i = 0; i < mprime[v].n; i++)
+            printf(" %d", mprime[v].edges[i]);
+        printf("\n");
+    }
+
+    printf("\n================ ROTATION ================\n");
+    print_rotation_system(emb);
+
+    check_rotation(dfs, emb);
 
     for (int v = 0; v < n; v++) { free(mprime[v].edges); free(rot[v].order); }
     free(mprime); free(rot);
@@ -1771,11 +1977,11 @@ static void variant_cb(SingularVariant *v, void *vctx) {
 }
 
 static void variant_recurse(VariantCtx *ctx, int set_idx) {
-    // printf("variant_recurse(idx=%d)\n", set_idx);
+    printf("variant_recurse(idx=%d)\n", set_idx);
     DfsGraph *dfs = ctx->dfs;
     if (set_idx == dfs->nb_singular_sets) {
         emit_embedding(ctx);   /* tout est choisi -> on construit la carte */
-        // printf("retour idx=%d\n", set_idx);
+        printf("retour idx=%d\n", set_idx);
         return;
     }
     VariantCbCtx vc = { ctx, set_idx };
@@ -1826,8 +2032,8 @@ static void on_partition(DfsGraph *dfs, DynPartition *part, uint64_t k, void *ct
     vc.edge_set_id = ec->edge_set_id;
     vc.result = ec->result;
 
-    // printf("\n================ h ================\n");
-    // print_partition(dfs,part);
+    printf("\n================ h ================\n");
+    print_partition(dfs,part);
 
     variant_recurse(&vc, 0);
 
@@ -1985,16 +2191,16 @@ int verify_embedding_count(const DfsGraph *dfs, const int actual_count) {
 
     long long prod = expected / ((long long)1 << (d + s));
 
-    // printf("=== Verification du nombre de plongements ===\n");
-    // printf("  d (paires DIFF non-triviales) = %d\n", d);
-    // printf("  s (groupes SAME libres)        = %d\n", s);
-    // printf("  2^(d+s)                        = %lld\n", (long long)1 << (d + s));
-    // printf("  prod h(x)                      = %lld\n", prod);
-    // printf("  Attendu  : %lld\n", expected);
-    // printf("  Obtenu   : %d\n",   actual_count);
+    printf("=== Verification du nombre de plongements ===\n");
+    printf("  d (paires DIFF non-triviales) = %d\n", d);
+    printf("  s (groupes SAME libres)        = %d\n", s);
+    printf("  2^(d+s)                        = %lld\n", (long long)1 << (d + s));
+    printf("  prod h(x)                      = %lld\n", prod);
+    printf("  Attendu  : %lld\n", expected);
+    printf("  Obtenu   : %d\n",   actual_count);
 
     if ((long long)actual_count == expected) {
-        // printf("  [OK] Compte correct.\n");
+        printf("  [OK] Compte correct.\n");
         return 1;
     }
     printf("  [ERREUR] Difference de %lld plongements.\n",
