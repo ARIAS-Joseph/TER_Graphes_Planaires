@@ -321,3 +321,34 @@ Graph* create_three_connex_planar_graph(const int nb_edges, const int nb_edges_t
     }
     return g;
 }
+
+/*
+ * Remplace les sommets de degré 2 par une arete si l'arete n'existe pas déjà
+ */
+
+void reduce_graph(Graph *g) {
+
+    int changed = 1;
+    while (changed) {
+        changed = 0;
+
+        for (int v = 0; v < g->nb_vertices; v++) {
+            if (g->vertices[v].deleted) continue;
+            if (g->neighbors[v].count != 2) continue;
+
+            int u = g->neighbors[v].neighbors[0];
+            int w = g->neighbors[v].neighbors[1];
+
+            int exists = 0;
+            for (int i = 0; i < g->neighbors[u].count; i++) {
+                if (g->neighbors[u].neighbors[i] == w) { exists = 1; break; }
+            }
+            if (!exists) create_edge(g, u, w);
+
+            delete_vertex(g, v);
+
+            changed = 1;
+            break;
+        }
+    }
+}

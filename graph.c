@@ -562,6 +562,7 @@ void compact_graph(Graph *g) {
         g->vertices[vmap[i]] = g->vertices[i];
         g->vertices[vmap[i]].id = vmap[i];
         g->vertices[vmap[i]].label = vmap[i];
+        g->vertices[vmap[i]].deleted = 0;
     }
     g->nb_vertices = new_nv;
 
@@ -572,6 +573,7 @@ void compact_graph(Graph *g) {
         g->edges[emap[i]].u = vmap[g->edges[i].u];
         g->edges[emap[i]].v = vmap[g->edges[i].v];
         g->edges[emap[i]].id = emap[i];
+        g->edges[emap[i]].deleted = 0;
     }
     g->nb_edges = new_ne;
 
@@ -601,7 +603,7 @@ void compact_graph(Graph *g) {
                 double *ta = realloc(nl->angles,    nl->capacity * sizeof(double));
                 if (!tn || !ta) { perror("compact_graph: neighbor realloc"); exit(1); }
                 nl->neighbors = tn;
-                nl->angles    = ta;
+                nl->angles = ta;
             }
 
             /* Insertion sort to maintain ascending angle order */

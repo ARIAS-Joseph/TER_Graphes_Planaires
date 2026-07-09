@@ -136,9 +136,58 @@ int arc_position(const PlanarEmbedding *emb, const int v, const int e) {
  */
 FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
 
-    const int n = emb->n;
+    const int n   = emb->n;
+    const int m   = dfs->edge_count;
 
-    /* visited[v][ai] = 1 if dart (v, ai) has already been processed, 0 otherwise. */
+    /* ── Validation 1 : somme des degrés = 2m ──────────────────────────── */
+    int total_rotation = 0;
+    for (int v = 0; v < n; v++) total_rotation += emb->rotation_lengths[v];
+    if (total_rotation != 2 * m)
+        fprintf(stderr,
+            "[trace_faces] SOMME ROTATIONS %d != 2*m=%d\n",
+            total_rotation, 2 * m);
+
+    /* ── Validation 2 : chaque arc apparaît exactement à from ET à to ──── */
+    /* (l'ancienne version remplissait arc_occurrences mais n'imprimait rien) */
+    int *arc_at_from = calloc(m, sizeof(int));
+    int *arc_at_to   = calloc(m, sizeof(int));
+
+    for (int v = 0; v < n; v++) {
+        for (int ai = 0; ai < emb->rotation_lengths[v]; ai++) {
+            int e = emb->rotation_system[v][ai];
+            if (e < 0 || e >= m) {
+                fprintf(stderr,
+                    "[trace_faces] ARC HORS BORNES : rotation[%d][%d]=%d "
+                    "(edge_count=%d)\n", v, ai, e, m);
+                continue;
+            }
+            if (dfs->edges[e].from == v) arc_at_from[e]++;
+            else if (dfs->edges[e].to == v) arc_at_to[e]++;
+            else
+                fprintf(stderr,
+                    "[trace_faces] ARC MAL PLACE : arc %d (from=%d to=%d) "
+                    "dans rotation[%d]\n",
+                    e, dfs->edges[e].from, dfs->edges[e].to, v);
+        }
+    }
+
+    for (int e = 0; e < m; e++) {
+        if (arc_at_from[e] != 1)
+            fprintf(stderr,
+                "[trace_faces] Arc %d (from=%d to=%d) : "
+                "present %d fois côté FROM (attendu 1)\n",
+                e, dfs->edges[e].from, dfs->edges[e].to, arc_at_from[e]);
+        if (arc_at_to[e] != 1)
+            fprintf(stderr,
+                "[trace_faces] Arc %d (from=%d to=%d) : "
+                "present %d fois côté TO (attendu 1)\n",
+                e, dfs->edges[e].from, dfs->edges[e].to, arc_at_to[e]);
+    }
+
+    free(arc_at_from);
+    free(arc_at_to);
+
+    /* ── Tracé des faces ────────────────────────────────────────────────── */
     int **visited = malloc(n * sizeof(int *));
     for (int v = 0; v < n; v++)
         visited[v] = calloc(emb->rotation_lengths[v], sizeof(int));
@@ -146,58 +195,59 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
     FaceList faces;
     face_list_init(&faces);
 
+    /* Garde-fou contre boucle infinie : chaque dart est visité au plus 1 fois */
+    const int max_iters = 2 * m + 4;
+
     for (int start_v = 0; start_v < n; start_v++) {
         for (int start_ai = 0; start_ai < emb->rotation_lengths[start_v]; start_ai++) {
 
-            /* If the dart is already visited, the face to which it belongs has already been
-             * traced. */
             if (visited[start_v][start_ai]) continue;
 
-            /* Trace a new face starting from dart (start_v, start_ai) */
-            uint64_t face_mask_vertices = 0; /* create a 64 bits mask for vertices */
-            uint64_t face_mask_edges = 0; /* create a 64 bits mask for edges */
-            int v = start_v;
+            uint64_t face_mask_vertices = 0;
+            uint64_t face_mask_edges    = 0;
+            int v  = start_v;
             int ai = start_ai;
+            int iters = 0;
+            int ok = 1;
 
             do {
-                visited[v][ai] = 1; /* mark current dart as visited  */
-                face_mask_vertices |= (1ULL << v); /* vertex v belongs to this face */
+                if (++iters > max_iters) {
+                    ok = 0;
+                    break;
+                }
 
-                /* Apply face permutation phi(v, ai): */
-                const int e = emb->rotation_system[v][ai]; /* arc taken */
-                const int w = other_endpoint(dfs, e, v); /* arrival vertex */
-                const int bi = arc_position(emb, w, e); /* position of e at w */
-                const int deg_w = emb->rotation_lengths[w];
-                const int next_ai = (bi - 1 + deg_w) % deg_w; /* previous CW arc at w */
+                visited[v][ai] = 1;
+                face_mask_vertices |= (1ULL << v);
 
-                /* Mark the edge as belonging to this face */
-                face_mask_edges |= (1ULL << dfs->edge_indices[v*dfs->vertices_count+w]);
+                const int e  = emb->rotation_system[v][ai];
+                const int w  = other_endpoint(dfs, e, v);
+                const int bi = arc_position(emb, w, e);
 
-                v = w;
+                if (bi == -1) {
+                    ok = 0;
+                    break;
+                }
+
+                const int deg_w   = emb->rotation_lengths[w];
+                const int next_ai = (bi - 1 + deg_w) % deg_w;
+
+                face_mask_edges |=
+                    (1ULL << dfs->edge_indices[v * dfs->vertices_count + w]);
+
+                v  = w;
                 ai = next_ai;
 
-            } while (v != start_v || ai != start_ai); /* when we reach once again v, the face is
-            closed and has been traced */
+            } while (v != start_v || ai != start_ai);
 
-            /* Add the face to the FaceList */
-            face_list_push(&faces, face_mask_vertices, face_mask_edges);
+            if (ok)
+                face_list_push(&faces, face_mask_vertices, face_mask_edges);
+            /* Si !ok : on ne pousse pas la face tronquée, et les darts
+             * non-visités seront repris par la boucle externe normalement. */
         }
     }
 
     for (int v = 0; v < n; v++) free(visited[v]);
     free(visited);
-
-    // printf("\n========== FACES ==========\n");
-    // printf("Euler : %d - %d + %d = %d\n",
-    //    n,dfs->edge_count,faces.count,n-dfs->edge_count+faces.count);
-    // for (int f = 0; f < faces.count; f++) {
-    //
-    //     printf("Face %d : ", f);
-    //
-    //     print_face_mask(faces.vertices_masks[f], dfs->vertices_count);
-    //
-    //     printf("\n");
-    // }
 
     return faces;
 }
@@ -359,17 +409,25 @@ void find_minimal_never_cofacial(const int nb_vertices, const int nb_edges, cons
 //
 //     /* Example graph */
 //     Graph *g = create_graph();
-//     for (int i = 0; i < 6; ++i) create_vertex(g, 0.0, 0.0);
+//     for (int i = 0; i < 4; ++i) create_vertex(g, 0.0, 0.0);
 //
-//     create_edge(g, 0, 2);
+//     create_edge(g, 0, 1);
 //     create_edge(g, 0, 3);
-//     create_edge(g, 0, 5);
 //     create_edge(g, 1, 2);
-//     create_edge(g, 1, 5);
 //     create_edge(g, 2, 3);
-//     create_edge(g, 2, 4);
-//     create_edge(g, 5, 2);
-//     create_edge(g, 3, 4);
+//
+//
+//     // create_edge(g, 0, 1);
+//     // create_edge(g, 0, 2);
+//     // create_edge(g, 0, 4);
+//     // create_edge(g, 0, 5);
+//     // create_edge(g, 0,3);
+//     // create_edge(g, 1, 2);
+//     // create_edge(g, 2,6);
+//     // create_edge(g, 2, 4);
+//     // create_edge(g, 3, 4);
+//     // create_edge(g, 3, 6);
+//     // create_edge(g, 4,5);
 //
 //     /* Pipeline to compute all embeddings of G */
 //     DfsGraph *dfs = build_dfs_graph(g);

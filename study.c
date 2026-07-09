@@ -78,8 +78,7 @@ int popcount64(uint64_t x) {
 }
 
 /**
- * @brief Return 1 iff the internal faces of this embedding form a minimal
- *        cycle basis.
+ * @brief Return the number of time internal faces can be a MCB.
  *
  * We try every face as the candidate outer face (excluded from the internal
  * set). For each candidate, we sum the edge counts of the remaining D faces.
@@ -95,29 +94,20 @@ static int embedding_faces_are_mcb(const FaceList *faces, const int D, const int
         printf("embedding_faces_are_mcb: face count %d != basis dimension + 1 (%d)\n",
                faces->count, D + 1);
         return -1;
-    }   /* Euler sanity check */
-
-    int max = 0;
-    int total = 0;
-    int skipped = -1;
-    for (int f = 0; f < faces->count; f++) {
-        int lenght_face = popcount64(faces->edges_masks[f]);
-        total += lenght_face;
-        if (lenght_face > max) {
-            max = lenght_face;
-            skipped = f;
-        }
     }
 
-    total -= max;
+    int nb_valid_outer = 0;
 
-    if (total == mcb_weight) return 1;
-    // printf("%d %d\n", total, mcb_weight);
-    // for (int f = 0; f < faces->count; f++) {
-    //     if (f == skipped) continue;
-    //     print_face_mask(faces->vertices_masks[f], 64);
-    // }
-    return 0;
+    for (int skip = 0; skip < faces->count; skip++) {
+        int total = 0;
+        for (int f = 0; f < faces->count; f++) {
+            if (f == skip) continue;
+            total += popcount64(faces->edges_masks[f]);
+        }
+        if (total == mcb_weight) nb_valid_outer++;
+    }
+
+    return nb_valid_outer;
 }
 
 /**
@@ -297,10 +287,14 @@ static uint64_t cycle_to_edges_mask(const Graph *g, const Path *cycle) {
  * Returns 1 iff the D MCB edge-masks equal the D non-outer face edge-masks
  * for some choice of outer face.
  */
-static int mcb_matches_embedding(const Graph *g, const Minimal_basis *mb, const FaceList *faces) {
+static int mcb_matches_embedding(const Graph *g, const Minimal_basis *mb, const FaceList faces) {
 
     int D = mb->dimension;
-    if (faces->count != D + 1) return 0;
+    if (faces.count != D + 1) {
+        printf("mcb_matches_embedding: face count %d != basis dimension + 1 (%d)\n",
+               faces.count, D + 1);
+        return -1;
+    }
 
     uint64_t *mcb = malloc(D * sizeof(uint64_t));
     if (!mcb) { perror("mcb_matches_embedding"); exit(EXIT_FAILURE); }
@@ -308,13 +302,13 @@ static int mcb_matches_embedding(const Graph *g, const Minimal_basis *mb, const 
         mcb[c] = cycle_to_edges_mask(g, &mb->cycles[c]);
 
     int result = 0;
-    for (int skip = 0; skip < faces->count && !result; skip++) {
+    for (int skip = 0; skip < faces.count && !result; skip++) {
         int all_found = 1;
         for (int c = 0; c < D && all_found; c++) {
             int found = 0;
-            for (int f = 0; f < faces->count && !found; f++) {
+            for (int f = 0; f < faces.count && !found; f++) {
                 if (f == skip) continue;
-                if (faces->edges_masks[f] == mcb[c]) found = 1;
+                if (faces.edges_masks[f] == mcb[c]) found = 1;
             }
             if (!found) all_found = 0;
         }
@@ -349,13 +343,690 @@ static void ensure_dir(const char *path) {
     }
 }
 
-static void save_to_folder(const char *folder, const Graph *g, int id) {
+static void save_to_folder(const char *folder, const Graph *g, const char *filename) {
     ensure_dir(folder);
     char path[1024];
-    snprintf(path, sizeof(path),
-             "%s/graph_%dBCM_%dv_%de_id%d.txt",
-             folder, g->nb_minimal_bases, g->nb_vertices, g->nb_edges, id);
+    printf("Saving graph to %s/graph_%s.txt\n", folder, filename);
+    snprintf(path, sizeof(path), "%s/graph_%s.txt", folder, filename);
     save_graph(g, path);
+}
+
+/**
+ * @brief Compte le nombre de composantes connexes du graphe H des chaînes entre
+ *        u et v, en utilisant la réduction polynomiale suivante.
+ *
+ * Soit H le graphe dont les sommets sont les chaînes simples de u à v dans G
+ * (y compris l'arête directe (u,v)), et dont les arêtes relient deux chaînes
+ * qui partagent une arête de G ou un sommet intérieur (≠ u, v).
+ *
+ * Réduction (démontrée dans has_four_chain_components) :
+ *
+ *   nb_composantes(H)  =  1  +  |{ C composante de G−{u,v}  |
+ *                                    C a un voisin de u  ET  un voisin de v }|
+ *
+ * Complexité : O(V + E).
+ *
+ * @param g  Graphe G.
+ * @param u  Premier sommet de l'arête (u,v).
+ * @param v  Second  sommet de l'arête (u,v).
+ * @return   Nombre de composantes connexes de H.
+ */
+static int count_chain_components(const Graph *g, const int u, const int v) {
+    const int n = g->nb_vertices;
+
+    /* ── Étape 1 : BFS pour étiqueter les composantes de G − {u, v} ──────
+     *
+     * On retire u et v du graphe en les ignorant pendant le parcours.
+     * comp[w] = indice de la composante de w dans G−{u,v}, ou -1 si w n'est
+     * pas encore visité (ou si w = u ou w = v).                            */
+    int *comp  = malloc(n * sizeof(int));
+    int *queue = malloc(n * sizeof(int));
+    for (int i = 0; i < n; i++) comp[i] = -1;
+
+    int nb_comp = 0;
+
+    for (int s = 0; s < n; s++) {
+        /* Ignorer u, v et les sommets supprimés. */
+        if (s == u || s == v || g->vertices[s].deleted) continue;
+        if (comp[s] != -1) continue;   /* déjà visité */
+
+        /* BFS depuis s dans G − {u, v}. */
+        int head = 0, tail = 0;
+        queue[tail++] = s;
+        comp[s] = nb_comp;
+
+        while (head < tail) {
+            const int cur = queue[head++];
+            for (int i = 0; i < g->neighbors[cur].count; i++) {
+                const int w = g->neighbors[cur].neighbors[i];
+                /* Ne pas traverser u ni v ni les sommets supprimés. */
+                if (w == u || w == v || g->vertices[w].deleted) continue;
+                if (comp[w] == -1) {
+                    comp[w] = nb_comp;
+                    queue[tail++] = w;
+                }
+            }
+        }
+        nb_comp++;   /* nouvelle composante découverte */
+    }
+
+    free(queue);
+
+    /* Cas dégénéré : aucun sommet hors de {u,v} → seule l'arête directe. */
+    if (nb_comp == 0) {
+        free(comp);
+        return 1;
+    }
+
+    /* ── Étape 2 : déterminer quelles composantes touchent u ET v ─────────
+     *
+     * Une composante C contribue à H si et seulement si elle possède au
+     * moins un voisin de u ET au moins un voisin de v dans G.
+     * (Les voisins de u ou v qui sont u ou v eux-mêmes sont exclus.)      */
+    int *touches_u = calloc(nb_comp, sizeof(int));
+    int *touches_v = calloc(nb_comp, sizeof(int));
+
+    for (int i = 0; i < g->neighbors[u].count; i++) {
+        const int w = g->neighbors[u].neighbors[i];
+        if (w == v || g->vertices[w].deleted) continue;
+        if (comp[w] != -1) touches_u[comp[w]] = 1;
+    }
+
+    for (int i = 0; i < g->neighbors[v].count; i++) {
+        const int w = g->neighbors[v].neighbors[i];
+        if (w == u || g->vertices[w].deleted) continue;
+        if (comp[w] != -1) touches_v[comp[w]] = 1;
+    }
+
+    /* ── Étape 3 : compter ────────────────────────────────────────────────
+     *
+     * On part de 1 (l'arête directe (u,v) est toujours une composante
+     * isolée de H : elle n'a aucun sommet intérieur et son arête (u,v)
+     * n'est utilisée par aucune autre chaîne).
+     * Chaque composante de G−{u,v} touchant à la fois u et v ajoute 1.   */
+    int h_components = 1;
+    for (int c = 0; c < nb_comp; c++)
+        if (touches_u[c] && touches_v[c]) h_components++;
+
+    free(comp);
+    free(touches_u);
+    free(touches_v);
+
+    return h_components;
+}
+
+/**
+ * @brief Teste si le graphe G admet une arête (u,v) telle que le graphe des
+ *        chaînes H ait au moins 4 composantes connexes.
+ *
+ * Condition sur H :
+ *   Les sommets de H sont les chaînes simples de u à v dans G (arête directe
+ *   incluse). Deux chaînes y sont adjacentes si elles partagent une arête de G
+ *   ou un sommet intérieur (≠ u, v).
+ *
+ * Hypothèse (à vérifier expérimentalement) :
+ *   Si une telle arête existe dans G, alors pour tout plongement planaire de G
+ *   les faces internes ne forment jamais une base de cycles minimale.
+ *
+ * Réduction polynomiale utilisée (voir count_chain_components) :
+ *   nb_composantes(H) = 1 + |{ composantes de G−{u,v} touchant u et v }|
+ *
+ * Complexité totale : O(E · (V + E)).
+ *
+ * @param g  Graphe G (2-connexe planaire).
+ * @return   Indice de la première arête (u,v) témoin, ou -1 si aucune.
+ */
+int has_four_chain_components(const Graph *g)
+{
+    for (int e = 0; e < g->nb_edges; e++) {
+        if (g->edges[e].deleted) continue;
+
+        const int u = g->edges[e].u;
+        const int v = g->edges[e].v;
+
+        const int h_comp = count_chain_components(g, u, v);
+
+        if (h_comp >= 4) {
+            /* Arête témoin trouvée : on peut afficher les détails ici. */
+            return e;
+        }
+    }
+
+    return -1;   /* aucune arête de G ne remplit la condition */
+}
+
+static int count_components_after_path(const Graph *g, const int *path, const int path_len)
+{
+    const int n = g->nb_vertices;
+
+    int *removed = calloc(n, sizeof(int));
+
+    /* supprimer uniquement les sommets internes */
+    for (int i = 1; i < path_len - 1; i++)
+        removed[path[i]] = 1;
+
+    int *comp = malloc(n * sizeof(int));
+    int *queue = malloc(n * sizeof(int));
+
+    for (int i = 0; i < n; i++)
+        comp[i] = -1;
+
+    int nb_comp = 0;
+
+    for (int s = 0; s < n; s++) {
+
+        if (removed[s] || g->vertices[s].deleted)
+            continue;
+
+        if (comp[s] != -1)
+            continue;
+
+        int head = 0;
+        int tail = 0;
+
+        queue[tail++] = s;
+        comp[s] = nb_comp;
+
+        while (head < tail) {
+
+            int cur = queue[head++];
+
+            for (int i = 0; i < g->neighbors[cur].count; i++) {
+
+                int w = g->neighbors[cur].neighbors[i];
+
+                if (removed[w] || g->vertices[w].deleted)
+                    continue;
+
+                if (comp[w] == -1) {
+                    comp[w] = nb_comp;
+                    queue[tail++] = w;
+                }
+            }
+        }
+
+        nb_comp++;
+    }
+
+    free(queue);
+    free(comp);
+    free(removed);
+
+    return nb_comp;
+}
+
+static int dfs_paths(const Graph *g, const int current, const int target, int *visited, int *path,
+    const int path_len) {
+
+    if (current == target) {
+
+        if (count_components_after_path(g, path, path_len) == 3) {
+            printf("Found path: %d -> %d (len %d). Path:\n", current, target, path_len);
+            for (int i = 0; i < path_len; i++) {
+                printf("%d ", path[i]);
+            }
+            printf("\n");
+            return 1;
+        }
+
+        return 0;
+    }
+
+    for (int i = 0; i < g->neighbors[current].count; i++) {
+
+        int nxt = g->neighbors[current].neighbors[i];
+
+        if (g->vertices[nxt].deleted) continue;
+
+        if (visited[nxt]) continue;
+
+        visited[nxt] = 1;
+        path[path_len] = nxt;
+
+        if (dfs_paths(g, nxt, target, visited, path, path_len + 1)) {
+            return 1;
+        }
+
+        visited[nxt] = 0;
+    }
+
+    return 0;
+}
+
+int exists_three_component_separator(const Graph *g) {
+    const int n = g->nb_vertices;
+
+    int *visited = calloc(n, sizeof(int));
+    int *path = malloc(n * sizeof(int));
+
+    for (int u = 0; u < n; u++) {
+
+        if (g->vertices[u].deleted) continue;
+
+        for (int v = u + 1; v < n; v++) {
+
+            if (g->vertices[v].deleted) continue;
+
+            for (int i = 0; i < n; i++) visited[i] = 0;
+
+            visited[u] = 1;
+            path[0] = u;
+
+            if (dfs_paths(g, u, v, visited, path, 1)) {
+                free(path);
+                free(visited);
+                return 1;
+            }
+        }
+    }
+
+    free(path);
+    free(visited);
+
+    return 0;
+}
+
+/**
+ * @brief Teste si chaque base de cycles minimale trouvée correspond aux faces
+ *        internes d'au moins un plongement planaire.
+ *
+ * Pour chaque base B dans g->minimals_basis[], on cherche un plongement de
+ * `embs` tel que l'ensemble des D faces internes de ce plongement soit
+ * exactement l'ensemble des D cycles de B (comparaison par masque d'arêtes).
+ *
+ * On utilise deux critères complémentaires :
+ *  1. Critère de poids  (rapide, O(F)) :
+ *     Les faces internes forment une BCM ⟺ leur poids total = mcb_weight.
+ *     Suffit à réfuter rapidement les plongements non-BCM.
+ *
+ *  2. Comparaison directe des masques (O(D²)) :
+ *     Si le poids correspond, on vérifie que les D masques de faces sont
+ *     exactement les D masques des cycles de B (en ignorant la face externe,
+ *     essayée à tour de rôle).
+ *
+ * @param g          Graphe avec ses BCM calculées par multiple_horton().
+ * @param dfs        Graphe DFS associé à g (déjà construit).
+ * @param embs       Ensemble de tous les plongements planaires de g.
+ * @param mcb_weight Somme des longueurs des cycles d'une BCM
+ *                   (invariant : identique pour toutes les BCM).
+ * @return           1 si TOUTES les bases correspondent à un plongement,
+ *                   0 si au moins une base ne correspond à aucun plongement.
+ */
+static int all_bases_are_maps(const Graph *g, const DfsGraph *dfs, const EmbeddingSet *embs,
+    const int mcb_weight) {
+
+    const int D = g->basis_dimension;
+
+    /* Précalcul des masques d'arêtes de chaque plongement, pour chaque choix
+     * de face externe possible. On stocke (nb_embeddings × (D+1)) masques. */
+
+    /* Pour éviter de recalculer trace_faces plusieurs fois, on le fait une
+     * seule fois par plongement et on stocke la FaceList. */
+    FaceList *all_face_lists = malloc(embs->count * sizeof(FaceList));
+    if (!all_face_lists) { perror("all_bases_are_maps"); exit(EXIT_FAILURE); }
+
+    for (int ei = 0; ei < embs->count; ei++)
+        all_face_lists[ei] = trace_faces(dfs, &embs->embeddings[ei]);
+
+    int all_match = 1;
+
+    for (int b = 0; b < g->nb_minimal_bases && all_match; b++) {
+
+        const Minimal_basis *mb = &g->minimals_basis[b];
+
+        /* Calcul des masques d'arêtes des D cycles de la base b. */
+        uint64_t *mcb_masks = malloc(D * sizeof(uint64_t));
+        if (!mcb_masks) { perror("all_bases_are_maps: mcb_masks"); exit(EXIT_FAILURE); }
+
+        for (int c = 0; c < D; c++) {
+            uint64_t mask = 0;
+            for (int e = 0; e < g->nb_edges; e++) {
+                if (!g->edges[e].deleted && mb->cycles[c].edges_ids[e])
+                    mask |= (1ULL << e);
+            }
+            mcb_masks[c] = mask;
+        }
+
+        /* Cherche un plongement dont les faces internes = cycles de b. */
+        int base_has_matching_embedding = 0;
+
+        for (int ei = 0; ei < embs->count && !base_has_matching_embedding; ei++) {
+
+            const FaceList *faces = &all_face_lists[ei];
+            if (faces->count != D + 1) continue;
+
+            /* ── Critère 1 : poids total des faces internes ───────────── */
+            for (int skip = 0; skip < faces->count && !base_has_matching_embedding; skip++) {
+
+                int weight_ok = 0;
+                {
+                    int total = 0;
+                    for (int f = 0; f < faces->count; f++) {
+                        if (f == skip) continue;
+                        uint64_t m = faces->edges_masks[f];
+                        int cnt = 0;
+                        while (m) { m &= m - 1; cnt++; }
+                        total += cnt;
+                    }
+                    weight_ok = (total == mcb_weight);
+                }
+                if (!weight_ok) continue;
+
+                /* ── Critère 2 : bijection exacte entre masques ─────────
+                 *
+                 * On vérifie que { edges_masks[f] | f ≠ skip }
+                 *              = { mcb_masks[c]   | c = 0..D-1 }.
+                 * Chaque masque de face doit apparaître exactement une fois
+                 * dans les masques de cycles (pas de doublon autorisé).    */
+                int matched_cycle[64]; /* matched_cycle[c] = 1 si mcb_masks[c] déjà couplé */
+                for (int c = 0; c < D; c++) matched_cycle[c] = 0;
+
+                int bijection_ok = 1;
+                for (int f = 0; f < faces->count && bijection_ok; f++) {
+                    if (f == skip) continue;
+                    int found = 0;
+                    for (int c = 0; c < D && !found; c++) {
+                        if (!matched_cycle[c] &&
+                            faces->edges_masks[f] == mcb_masks[c]) {
+                            matched_cycle[c] = 1;
+                            found = 1;
+                        }
+                    }
+                    if (!found) bijection_ok = 0;
+                }
+
+                if (bijection_ok) base_has_matching_embedding = 1;
+            }
+        }
+
+        if (!base_has_matching_embedding) {
+            /* Cette base ne correspond à aucun plongement. */
+            all_match = 0;
+        }
+
+        free(mcb_masks);
+    }
+
+    /* Libération des FaceList précalculées. */
+    for (int ei = 0; ei < embs->count; ei++)
+        fml_free(&all_face_lists[ei]);
+    free(all_face_lists);
+
+    return all_match;
+}
+
+/**
+ * @brief Teste si le graphe G−{u,v} reste connexe (BFS en ignorant u et v).
+ *
+ * Sert de brique pour is_3_connected() : G est 3-connexe ssi pour toute
+ * paire {u,v}, G−{u,v} est connexe.
+ *
+ * @param g  Graphe planaire 2-connexe.
+ * @param u  Premier sommet supprimé.
+ * @param v  Second  sommet supprimé.
+ * @return   1 si G−{u,v} est connexe, 0 sinon.
+ */
+static int is_connected_without(const Graph *g, int u, int v) {
+
+    const int n = g->nb_vertices;
+    int *visited = calloc(n, sizeof(int));
+    int *queue   = malloc(n * sizeof(int));
+
+    /* Premier sommet actif (ni u, ni v, ni supprimé). */
+    int start = -1;
+    for (int i = 0; i < n; i++) {
+        if (i != u && i != v && !g->vertices[i].deleted) { start = i; break; }
+    }
+
+    int connected = 1;
+
+    if (start == -1) goto cleanup;  /* 0 ou 1 sommet restant : trivial */
+
+    /* BFS depuis start dans G − {u, v}. */
+    int head = 0, tail = 0;
+    queue[tail++] = start;
+    visited[start] = 1;
+
+    while (head < tail) {
+        const int cur = queue[head++];
+        for (int i = 0; i < g->neighbors[cur].count; i++) {
+            const int w = g->neighbors[cur].neighbors[i];
+            if (w == u || w == v || g->vertices[w].deleted || visited[w]) continue;
+            visited[w] = 1;
+            queue[tail++] = w;
+        }
+    }
+
+    /* Tous les sommets actifs doivent avoir été atteints. */
+    for (int i = 0; i < n; i++) {
+        if (i != u && i != v && !g->vertices[i].deleted && !visited[i]) {
+            connected = 0;
+            break;
+        }
+    }
+
+cleanup:
+    free(visited);
+    free(queue);
+    return connected;
+}
+
+/**
+ * @brief Teste la 3-connexité de G.
+ *
+ * G est 3-connexe ssi il est 2-connexe (vérifié par is_biconnected) ET
+ * pour toute paire de sommets {u,v}, G−{u,v} est connexe.
+ *
+ * Complexité : O(V² × (V+E)).  Suffisant pour V ≤ 20.
+ *
+ * @param g  Graphe planaire 2-connexe.
+ * @return   1 si G est 3-connexe, 0 sinon.
+ */
+static int is_3_connected(const Graph *g) {
+
+    if (!is_biconnected(g)) return 0;
+
+    const int n = g->nb_vertices;
+    for (int u = 0; u < n; u++) {
+        if (g->vertices[u].deleted) continue;
+        for (int v = u + 1; v < n; v++) {
+            if (g->vertices[v].deleted) continue;
+            if (!is_connected_without(g, u, v)) return 0;
+        }
+    }
+    return 1;
+}
+
+/**
+ * @brief Compte le nombre de bits à 1 d'un masque 64 bits.
+ */
+static int popcount_local(uint64_t x) {
+    int c = 0; while (x) { x &= x - 1; c++; } return c;
+}
+
+static int is_necklace(const Graph *g,
+                       uint64_t outer_edges)
+{
+    const int n = g->nb_vertices;
+
+    int *deg = calloc(n, sizeof(int));
+    int *alive = calloc(n, sizeof(int));
+    int *queue = malloc(n * sizeof(int));
+
+    /* degrés dans l'arbre T */
+    for (int e = 0; e < g->nb_edges; e++) {
+
+        if (g->edges[e].deleted)
+            continue;
+
+        if (outer_edges & (1ULL << e))
+            continue;               /* arête du cycle extérieur */
+
+        int u = g->edges[e].u;
+        int v = g->edges[e].v;
+
+        deg[u]++;
+        deg[v]++;
+    }
+
+    for (int v = 0; v < n; v++)
+        alive[v] = !g->vertices[v].deleted;
+
+    /* effeuillage */
+
+    int head = 0, tail = 0;
+
+    for (int v = 0; v < n; v++)
+        if (alive[v] && deg[v] == 1)
+            queue[tail++] = v;
+
+    while (head < tail) {
+
+        int v = queue[head++];
+
+        if (!alive[v] || deg[v] != 1)
+            continue;
+
+        alive[v] = 0;
+
+        for (int e = 0; e < g->nb_edges; e++) {
+
+            if (g->edges[e].deleted)
+                continue;
+
+            if (outer_edges & (1ULL << e))
+                continue;
+
+            int u = -1;
+
+            if (g->edges[e].u == v)
+                u = g->edges[e].v;
+            else if (g->edges[e].v == v)
+                u = g->edges[e].u;
+            else
+                continue;
+
+            if (!alive[u])
+                continue;
+
+            deg[u]--;
+
+            if (deg[u] == 1)
+                queue[tail++] = u;
+        }
+    }
+
+    /* les sommets restants doivent former un chemin */
+
+    int remain = 0;
+    int deg1 = 0;
+    int deg2 = 0;
+
+    for (int v = 0; v < n; v++) {
+
+        if (!alive[v])
+            continue;
+
+        remain++;
+
+        int d = 0;
+
+        for (int e = 0; e < g->nb_edges; e++) {
+
+            if (g->edges[e].deleted)
+                continue;
+
+            if (outer_edges & (1ULL << e))
+                continue;
+
+            int u = -1;
+
+            if (g->edges[e].u == v)
+                u = g->edges[e].v;
+            else if (g->edges[e].v == v)
+                u = g->edges[e].u;
+            else
+                continue;
+
+            if (alive[u])
+                d++;
+        }
+
+        if (d == 1)
+            deg1++;
+        else if (d == 2)
+            deg2++;
+        else {
+            free(deg);
+            free(alive);
+            free(queue);
+            return 0;
+        }
+    }
+
+    free(deg);
+    free(alive);
+    free(queue);
+
+    if (remain == 2)
+        return 1;      /* K4 */
+
+    return (deg1 == 2 && deg2 == remain - 2);
+}
+
+/**
+ * @brief Teste si le graphe G est un graphe de Halin.
+ *
+ * Utilise la caractérisation de Wikipedia (méthode 2) :
+ * G est un graphe de Halin si et seulement s'il est
+ *   (a) planaire,
+ *   (b) 3-connexe,
+ *   (c) il existe une face dont le nombre de sommets est égal au rang
+ *       cyclomatique  D = m − n + 1.
+ *
+ * Justification de (c) : dans un graphe de Halin avec k feuilles, l'arbre
+ * couvrant a n−1 arêtes, le cycle extérieur en ajoute k, donc m = n−1+k et
+ * D = k.  La face extérieure (cycle des feuilles) a exactement k sommets. ✓
+ *
+ * La planéité est garantie par le pipeline (embs->count > 0).
+ * Pour un graphe 3-connexe, Whitney garantit l'unicité du plongement, donc
+ * il suffit de tester le premier ; on parcourt tous par robustesse.
+ *
+ * Complexité : O(V² × (V+E))  dominée par is_3_connected.
+ *
+ * @param g     Graphe planaire 2-connexe avec g->nb_edges et g->nb_vertices
+ *              à jour (pas d'arêtes/sommets marqués deleted).
+ * @param dfs   Graphe DFS de g (déjà construit).
+ * @param embs  Ensemble de tous les plongements planaires de g.
+ * @param faces
+ * @return      1 si G est un graphe de Halin, 0 sinon.
+ */
+int is_halin_graph(const Graph *g, const DfsGraph *dfs, const EmbeddingSet *embs, const FaceList *faces) {
+
+    /* (a) Planéité */
+    if (embs->count == 0) return 0;
+
+    /* (b) 3-connexité */
+    if (!is_3_connected(g)) return 0;
+
+    /* (c) Existence d'une face de taille D = m − n + 1 */
+    const int D = g->nb_edges - g->nb_vertices + 1;
+
+    for (int ei = 0; ei < embs->count; ei++) {
+
+        for (int f = 0; f < faces[ei].count; f++) {
+            if (popcount_local(faces[ei].vertices_masks[f]) == D) {
+
+                if (is_necklace(g, faces[ei].edges_masks[f])) {
+                    return 0;
+                }
+
+                return 1;
+            }
+        }
+    }
+
+    return 0;
 }
 
 /* =========================================================================
@@ -364,331 +1035,261 @@ static void save_to_folder(const char *folder, const Graph *g, int id) {
 
 void study_graph(const int nb_vertex, const int nb_tests, int *id, FILE *f) {
 
-    const int min_edges = nb_vertex+1;
+    const int min_edges = nb_vertex-1;
     const int max_edges = 3 * nb_vertex - 6 > 64 ? 64 : 3 * nb_vertex - 6;
     if (min_edges > max_edges) return;
 
     for (int trial = 0; trial < nb_tests; trial++) {
 
-        /* ── Generate ──────────────────────────────────────────────── */
-        const int target_edges =
-            min_edges + rand() % (max_edges - min_edges + 1);
+        const int target_edges = min_edges + rand() % (max_edges - min_edges);
 
         Graph *g = create_planar_graph(nb_vertex, target_edges);
-    if (!g) {
-        trial--;
-        continue;
-    }
-
-    /* ── Vérification d'intégrité post-génération ──────────────────────
-    * Teste directement l'hypothèse delete_vertex/compact_graph :
-    * la somme des degrés doit valoir exactement 2*nb_edges, et chaque
-    * arête de g->edges[] doit apparaître exactement deux fois dans les
-    * listes de voisins (une fois par extrémité), sans doublon ni absence.
-    */
-
-    int sum_degrees = 0;
-    for (int v = 0; v < g->nb_vertices; v++)
-        sum_degrees += g->neighbors[v].count;
-
-    if (sum_degrees != 2 * g->nb_edges) {
-        fprintf(stderr,
-            "*** INTEGRITY FAIL (id=%d): sum_degrees=%d != 2*nb_edges=%d ***\n",
-            *id, sum_degrees, 2 * g->nb_edges);
-        abort();
-    }
-
-    /* Vérifie que chaque arête (u,v) de g->edges[] est bien présente
-     * dans neighbors[u] ET neighbors[v], et réciproquement que chaque
-     * entrée de neighbors[] correspond à une vraie arête existante. */
-    for (int e = 0; e < g->nb_edges; e++) {
-        if (g->edges[e].deleted) {trial--; continue;}
-        int u = g->edges[e].u, v = g->edges[e].v;
-
-        int found_u_in_v = 0, found_v_in_u = 0;
-        for (int i = 0; i < g->neighbors[u].count; i++)
-            if (g->neighbors[u].neighbors[i] == v) found_v_in_u = 1;
-        for (int i = 0; i < g->neighbors[v].count; i++)
-            if (g->neighbors[v].neighbors[i] == u) found_u_in_v = 1;
-
-        if (!found_v_in_u || !found_u_in_v) {
-            fprintf(stderr,
-                "*** INTEGRITY FAIL (id=%d): edge %d (%d,%d) missing from "
-                "neighbor lists (found_v_in_u=%d found_u_in_v=%d) ***\n",
-                *id, e, u, v, found_v_in_u, found_u_in_v);
-            abort();
+        reduce_graph(g);
+        if (!g) {
+            trial--;
+            continue;
         }
-    }
 
-    /* Vérifie l'inverse : chaque entrée de neighbors[v] correspond à
-     * une arête réellement existante dans g->edges[] (pas de "fantôme"). */
-    for (int v = 0; v < g->nb_vertices; v++) {
-        for (int i = 0; i < g->neighbors[v].count; i++) {
-            int w = g->neighbors[v].neighbors[i];
-            int found = 0;
-            for (int e = 0; e < g->nb_edges; e++) {
-                if (g->edges[e].deleted) {trial--; continue;}
-                if ((g->edges[e].u == v && g->edges[e].v == w) ||
-                    (g->edges[e].u == w && g->edges[e].v == v)) {
-                    found = 1; break;
+        if (g->nb_edges < min_edges) { delete_graph(g); trial--; continue; }
+
+        if (!is_biconnected(g)) { delete_graph(g); trial--; continue; }
+
+        /* ── Step 1 : minimal cycle bases ──────────────────────────── */
+        int *inv_e = calloc(g->nb_edges,    sizeof(int));
+        int *inv_v = calloc(g->nb_vertices, sizeof(int));
+        if (!inv_e || !inv_v) {
+            free(inv_e); free(inv_v); delete_graph(g); trial--; continue;
+        }
+
+        multiple_horton(g, inv_e, inv_v, 5000);
+        free(inv_e); free(inv_v);
+
+        if (g->nb_minimal_bases == 0 || g->minimals_basis[0].dimension == 0 || g->face_basis !=-1 || g->nb_face_basis_outer > 0) {
+            delete_graph(g); trial--; continue;
+        }
+
+        const int expected_dim = g->nb_edges - g->nb_vertices + 1;
+        if (g->minimals_basis[0].dimension != expected_dim) {
+            delete_graph(g); trial--; continue;
+        }
+
+        printf("n=%d m=%d id=%d", g->nb_vertices, g->nb_edges, *id);
+
+        const int edge_max_2_cycle_all_bcm = all_bases_edge_at_most_2(g);
+
+        DfsGraph *dfs = build_dfs_graph(g);
+
+        compute_low_values(dfs);
+        build_phi_lists(dfs);
+        build_singular_sets(dfs);
+        compute_same_diff(dfs);
+        build_SAME_DIFF_prime(dfs);
+
+        /* ── Step 3 : enumerate embeddings and trace faces ───────────── */
+        const EmbeddingSet embs = enumerate_embeddings(dfs);
+        const int good_embedding_nb = verify_embedding_count(dfs, embs.count);
+        if (embs.count == 0 || !good_embedding_nb) {
+            free_embedding_set(&embs);   /* FIX : manquant → fuite à chaque skip */
+            free_dfs_graph(dfs);
+            delete_graph(g);
+            trial--;
+            continue;
+        }
+
+        /* Juste après enumerate_embeddings :
+ * Compter combien de plongements ont Euler = 2. */
+        // int euler_ok_count = 0;
+        // for (int ei = 0; ei < embs.count; ei++) {
+        //     FaceList faces_tmp = trace_faces(dfs, &embs.embeddings[ei]);
+        //     /* trace_faces_silent = trace_faces sans fprintf, juste le compte */
+        //     if (dfs->vertices_count - dfs->edge_count + faces_tmp.count == 2)
+        //         euler_ok_count++;
+        //     fml_free(&faces_tmp);
+        // }
+        // if (euler_ok_count == 0) {
+        //     fprintf(stderr,
+        //         "*** TOUS LES PLONGEMENTS NON-PLANAIRES "
+        //         "(n=%d m=%d trial=%d) — labels corrompus ? ***\n",
+        //         g->nb_vertices, g->nb_edges, trial);
+        //
+        //     /* Test d'isolation : reconstruire le DFS depuis zéro
+        //      * sur le même graphe et vérifier les labels. */
+        //     DfsGraph *dfs2 = build_dfs_graph(g);
+        //     compute_low_values(dfs2);
+        //     build_phi_lists(dfs2);
+        //     build_singular_sets(dfs2);
+        //     compute_same_diff(dfs2);
+        //     build_SAME_DIFF_prime(dfs2);
+        //     EmbeddingSet embs2 = enumerate_embeddings(dfs2);
+        //
+        //     int euler_ok2 = 0;
+        //     for (int ei = 0; ei < embs2.count; ei++) {
+        //         FaceList f2 = trace_faces(dfs2, &embs2.embeddings[ei]);
+        //         if (dfs2->vertices_count - dfs2->edge_count + f2.count == 2)
+        //             euler_ok2++;
+        //         fml_free(&f2);
+        //     }
+        //     fprintf(stderr,
+        //         "    Reconstruction iso : %d/%d plongements planaires\n",
+        //         euler_ok2, embs2.count);
+        //
+        //     free_embedding_set(&embs2);
+        //     free_dfs_graph(dfs2);
+        // }
+
+        printf("\ntrial=%d/%d embeddings=%d\n", trial + 1, nb_tests, embs.count);
+
+        const int mcb_weight = compute_mcb_weight(g);
+
+        FaceList all_faces;
+        face_list_init(&all_faces);
+        int mcb_matches = 0;
+        int is_outerplanar = 0;
+
+        const uint64_t all_verts = (g->nb_vertices < 64) ? ((1ULL << g->nb_vertices) - 1) : ~(uint64_t)0;
+
+        int error = 0;
+        int nb_map_is_bcm = 0;
+
+        FaceList *cached_faces = malloc(embs.count * sizeof(FaceList));
+        for (int ei = 0; ei < embs.count; ei++)
+            cached_faces[ei] = trace_faces(dfs, &embs.embeddings[ei]);
+
+        for (int ei = 0; ei < embs.count; ei++) {
+
+            FaceList faces = cached_faces[ei];
+
+            int face_are_mcb = embedding_faces_are_mcb(&faces, g->basis_dimension, mcb_weight);
+            if (face_are_mcb == -1) { error = 1; break; }
+            nb_map_is_bcm += face_are_mcb;
+            if (face_are_mcb > 0) mcb_matches = 1;
+
+            if (!is_outerplanar) {
+                for (int f = 0; f < faces.count; f++) {
+                    if (faces.vertices_masks[f] == all_verts) {
+                        is_outerplanar = 1;
+                        mcb_matches = 1;
+                        break;}
                 }
             }
-            if (!found) {
-                fprintf(stderr,
-                    "*** INTEGRITY FAIL (id=%d): neighbors[%d] contains "
-                    "phantom edge to %d with no matching g->edges[] entry ***\n",
-                    *id, v, w);
-                abort();
-            }
+
+            for (int f = 0; f < faces.count; f++)
+                face_list_push(&all_faces, faces.vertices_masks[f], faces.edges_masks[f]);
         }
-    }
-    if (g->nb_edges < min_edges) { delete_graph(g); trial--; continue; }
 
-    /* 2-connectivity is required by Cai's algorithm.
-     * Check BEFORE Horton to avoid wasting time on non-2-connected graphs. */
-    if (!is_biconnected(g)) { delete_graph(g); trial--; continue; }
-
-    /* ── Step 1 : minimal cycle bases ──────────────────────────── */
-    int *inv_e = calloc(g->nb_edges,    sizeof(int));
-    int *inv_v = calloc(g->nb_vertices, sizeof(int));
-    if (!inv_e || !inv_v) {
-        free(inv_e); free(inv_v); delete_graph(g); trial--; continue;
-    }
-    multiple_horton(g, inv_e, inv_v, 1000);
-    free(inv_e); free(inv_v);
-
-    if (g->nb_minimal_bases == 0 || g->minimals_basis[0].dimension == 0 || g->face_basis !=-1 || g->nb_face_basis_outer > 0) {
-        delete_graph(g); trial--; continue;
-    }
-
-    const int expected_dim = g->nb_edges - g->nb_vertices + 1;
-    if (g->minimals_basis[0].dimension != expected_dim) {
-        delete_graph(g); trial--; continue;
-    }
-
-    printf("n=%d m=%d id=%d", g->nb_vertices, g->nb_edges, *id);
-
-    // print neighbors
-    // printf("=== Neighbors original graph ===");
-    // for (int v=0; v < g->nb_vertices; v++) {
-    //     printf("\n%d:", v);
-    //     for (int n=0; n < g->neighbors[v].count; n++) {
-    //         printf(" %d", g->neighbors[v].neighbors[n]);
-    //     }
-    //     printf("\n");
-    // }
-
-    /* ── Step 1b : MCB edge-multiplicity filter ─────────────────── */
-    const int edges_ok = all_bases_edge_at_most_2(g);
-
-    /* ── Step 2 : build DFS structures ──────────────────────────── */
-    DfsGraph *dfs = build_dfs_graph(g);
-
-    // printf( "=== DFS parent_edge check ===\n");
-    // for (int v = 0; v < dfs->vertices_count; v++) {
-    //     int pe = dfs->vertices[v].parent_edge;
-    //     if (pe == -1) {
-    //         printf( "  v=%d dfs_num=%d  root\n",
-    //                 v, dfs->vertices[v].dfs_num);
-    //     } else {
-    //         int from = dfs->edges[pe].from;
-    //         int to = dfs->edges[pe].to;
-    //         int ok = (from == v || to == v);
-    //         printf("  v=%d dfs_num=%d  parent_edge=%d (%d -> %d) %s\n",
-    //                 v, dfs->vertices[v].dfs_num,
-    //                 pe, from, to, ok ? "OK" : "*** WRONG ***");
-    //     }
-    // }
-
-    compute_low_values(dfs);
-    build_phi_lists(dfs);
-    // printf( "=== out_edges (Phi(v)) ===\n");
-    // for (int v = 0; v < dfs->vertices_count; v++) {
-    //     printf( "  Phi(%d): ", v);
-    //     for (int i = 0; i < dfs->vertices[v].nb_out_edges; i++) {
-    //         int e = dfs->vertices[v].out_edges[i];
-    //         printf( "arc%d(%d -> %d) ", e,
-    //                 dfs->edges[e].from, dfs->edges[e].to);
-    //     }
-    //     printf( "\n");
-    // }
-
-    build_singular_sets(dfs);
-    compute_same_diff(dfs);
-    build_SAME_DIFF_prime(dfs);
-
-    // Vérifie que chaque voisin est bien un ID valide
-    for (int i = 0; i < g->nb_vertices; i++) {
-        for (int j = 0; j < g->neighbors[i].count; j++) {
-            int neighbor_id = g->neighbors[i].neighbors[j];
-            if (neighbor_id < 0 || neighbor_id >= g->nb_vertices) {
-                printf("ERREUR: ID invalide %d trouvé dans les voisins de %d\n", neighbor_id, i);
-                exit(1);
-            }
+        if (error) {
+            free_embedding_set(&embs);
+            free_dfs_graph(dfs);
+            delete_graph(g);
+            trial--;
+            continue;
         }
-    }
 
-    /* ── Step 3 : enumerate embeddings and trace faces ───────────── */
-    const EmbeddingSet embs = enumerate_embeddings(dfs);
-    int good_embedding_nb = verify_embedding_count(dfs, embs.count);
-    if (embs.count == 0 || !good_embedding_nb) {
-        free_embedding_set((EmbeddingSet *)&embs);  /* FIX : fuite mémoire */
-        free_dfs_graph(dfs);
-        delete_graph(g);
-        trial--;
-        continue;
-    }
+        // const int nb_no_cofacial = count_minimal_never_cofacial(g->nb_vertices, &all_faces);
+        fml_free(&all_faces);
 
-    /* DEBUG: validate every arc in every rotation */
-    for (int ei = 0; ei < embs.count; ei++) {
-        for (int v = 0; v < dfs->vertices_count; v++) {
-            for (int ai = 0; ai < embs.embeddings[ei].rotation_lengths[v]; ai++) {
-                int arc = embs.embeddings[ei].rotation_system[v][ai];
-                int from = dfs->edges[arc].from;
-                int to = dfs->edges[arc].to;
-                if (from != v && to != v)
-                    printf(
-                        "*** INVALID emb[%d] rot[%d][%d]=arc%d (%d→%d) NOT incident to %d!\n",
-                        ei, v, ai, arc, from, to, v);
-            }
-        }
-    }
-
-    /* À ajouter juste après EmbeddingSet embs = enumerate_embeddings(dfs); dans study.c */
-
-    /* Validation stricte : chaque arc de chaque rotation doit être incident
-     * au sommet qui le porte. Si ce n'est jamais le cas, le bug n'est PAS
-     * dans trace_faces mais dans enumerate_embeddings (rotation système
-     * corrompu en amont, donc heap corruption toujours présente). */
-    int rotation_corrupted = 0;
-    for (int ei = 0; ei < embs.count; ei++) {
-        PlanarEmbedding *emb = &embs.embeddings[ei];
-        for (int v = 0; v < emb->n; v++) {
-            for (int ai = 0; ai < emb->rotation_lengths[v]; ai++) {
-                int arc = emb->rotation_system[v][ai];
-                if (arc < 0 || arc >= dfs->edge_count) {
-                    fprintf(stderr,
-                        "*** emb[%d] v=%d ai=%d: arc=%d HORS LIMITES (edge_count=%d) ***\n",
-                        ei, v, ai, arc, dfs->edge_count);
-                    rotation_corrupted = 1;
-                    trial--;
-                    continue;
-                }
-                int from = dfs->edges[arc].from;
-                int to   = dfs->edges[arc].to;
-                if (from != v && to != v) {
-                    fprintf(stderr,
-                        "*** emb[%d] v=%d ai=%d: arc%d (%d->%d) NON INCIDENT à %d ***\n",
-                        ei, v, ai, arc, from, to, v);
-                    rotation_corrupted = 1;
+        int nb_bases_with_map = 0;
+        for (int mb = 0; mb < g->nb_minimal_bases; mb++) {
+            for (int ei = 0; ei < embs.count; ei++) {
+                FaceList faces = cached_faces[ei];
+                if (mcb_matches_embedding(g, &g->minimals_basis[mb], faces)) {
+                    nb_bases_with_map++;
+                    break;
                 }
             }
         }
-    }
-    if (rotation_corrupted) {
-        printf("*** ROTATION SYSTEM CORROMPU pour ce graphe (id=%d) ***\n", *id);
-    }
+        const int all_bcm_are_maps = (nb_bases_with_map == g->nb_minimal_bases);
 
-    printf("\ntrial=%d/%d embeddings=%d\n",
-            trial + 1, nb_tests, embs.count);
 
-    /* Pre-compute MCB weight once: sum of cycle lengths in any MCB.
-     * Used by embedding_faces_are_mcb() to decide minimality. */
-    const int mcb_weight = compute_mcb_weight(g);
+        char filename[1024];
+        snprintf(filename, sizeof(filename), "%d_v(%d)_e(%d)_outer(%d)_mapMCB(%d)_allMapsMCB(%d)"
+                                             "_MCBAlwaysMap(%d)_nbMCB(%d)_nbMCBMap(%d)_nbBaseswMap(%d)_nbMap(%d)_ratio(%d)_triangule(%d)",
+                                             *id, dfs->vertices_count,
+                                             dfs->edge_count, is_outerplanar, mcb_matches,
+                                             nb_map_is_bcm == embs.count*g->basis_dimension, all_bcm_are_maps, g->nb_minimal_bases,
+                                             nb_map_is_bcm, nb_bases_with_map, embs.count*g->basis_dimension+1, (int)(100.0f * nb_map_is_bcm / (float)(embs.count * (g->basis_dimension + 1))),
+                                             g->nb_edges == 3*g->nb_vertices-6);
 
-    FaceList all_faces;
-    face_list_init(&all_faces);
-    int mcb_matches = 0;
-    int is_outerplanar = 0;
 
-    const uint64_t all_verts = (g->nb_vertices < 64)
-                               ? ((1ULL << g->nb_vertices) - 1)
-                               : ~(uint64_t)0;
+        for (int mb = 0; mb < g->nb_minimal_bases; mb++) {
 
-    int error = 0;
-    for (int ei = 0; ei < embs.count; ei++) {
-        // printf("=== Embedding %d ===\n", ei + 1);
-        FaceList faces = trace_faces(dfs, &embs.embeddings[ei]);
+            if (!basis_edge_at_most_2_cycles(g, &g->minimals_basis[mb]))
+                continue;
 
-        if (!mcb_matches) {
-            int face_are_mcb = embedding_faces_are_mcb(&faces, g->minimals_basis[0].dimension, mcb_weight);
-            if (face_are_mcb)
-                mcb_matches = 1;
-            if (face_are_mcb == -1) {
-                fml_free(&faces);
-                error = 1;
+            int found_embedding = 0;
+
+            if (!mcb_matches) {
+                save_to_folder("no_mcb_matches_but_oneMCB_2_edges_max", g, filename);
+            }
+
+            for (int ei = 0; ei < embs.count; ei++) {
+                const FaceList faces = cached_faces[ei];
+
+                if (mcb_matches_embedding(g, &g->minimals_basis[mb], faces)) {
+                    found_embedding = 1;
+                    break;
+                }
+            }
+
+            if (!found_embedding) {
+                save_to_folder("BCM_2_edges_not_map", g, filename);
                 break;
             }
         }
 
-        if (!is_outerplanar) {
-            // printf("=== Checking for outerplanarity ===\n");
-            for (int f = 0; f < faces.count; f++) {
-                // print_face_mask(faces.vertices_masks[f], g->nb_vertices);
-                if (faces.vertices_masks[f] == all_verts) {
-                    is_outerplanar = 1;
-                    mcb_matches = 1;
-                    // printf("outerplanar");
-                    break;}
-            }
+        if (!mcb_matches) {
+            save_to_folder("BCM_no_face", g, filename);
+            const int witness_edge = has_four_chain_components(g);
+            if (witness_edge == -1) save_to_folder("BCM_contre_exemple", g, filename);
+            if (edge_max_2_cycle_all_bcm) save_to_folder("BCM_no_face_interesting", g, filename);
         }
 
-        for (int f = 0; f < faces.count; f++)
-            face_list_push(&all_faces,
-                           faces.vertices_masks[f],
-                           faces.edges_masks[f]);
+        if (all_bcm_are_maps) {
+            save_to_folder("All_BCM_are_map", g, filename);
+            if (is_halin_graph(g, dfs, &embs, cached_faces))
+                save_to_folder("All_BCM_are_map_not_halin", g, filename);
+        }
 
-        fml_free(&faces);
-    }
+        if (nb_map_is_bcm == embs.count * (g->basis_dimension + 1)) {
+            save_to_folder("All_maps_are_BCM", g, filename);
+            if (!all_bcm_are_maps) save_to_folder("All_maps_are_BCM_but_not_all_BCM_are_map", g, filename);
+            else save_to_folder("All_maps_are_BCM_and_all_BCM_are_map", g, filename);
+        }
 
-    /* Si une erreur est survenue, on abandonne complètement ce graphe */
-    if (error) {
+        if (nb_map_is_bcm == 1) save_to_folder("1_map_is_BCM", g, filename);
+
+        if (nb_map_is_bcm > 1) save_to_folder("several_maps_are_BCM", g, filename);
+
+        // if (nb_no_cofacial == 0 && !is_outerplanar) save_to_folder("pour_chloe", g, filename);
+
+        fprintf(f,"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+        *id,
+        dfs->vertices_count,
+        dfs->edge_count,
+        is_outerplanar,
+        mcb_matches,
+        edge_max_2_cycle_all_bcm,
+        (nb_map_is_bcm == embs.count * (g->basis_dimension + 1)),
+        all_bcm_are_maps,
+        g->nb_minimal_bases,
+        nb_map_is_bcm,
+        embs.count * (g->basis_dimension + 1),
+        (int)(100.0f * nb_map_is_bcm / (float)(embs.count * (g->basis_dimension + 1))),
+        g->nb_edges == 3*g->nb_vertices-6);
+
+        fflush(f);
+
+        (*id)++;
+
+        /* ── Cleanup ──────────────────────────────────────────────── */
         free_embedding_set(&embs);
         free_dfs_graph(dfs);
         delete_graph(g);
-        trial--;
-        continue;
-    }
-
-    /* ── Step 4 : never-co-facial search ───────────────────────── */
-    const int nb_no_cofacial = count_minimal_never_cofacial(g->nb_vertices,
-                                                       &all_faces);
-    fml_free(&all_faces);
-
-    /* ── Step 5 : save ─────────────────────────────────────────── */
-
-    int edge_change_nb_appearence = 0;
-    int diff_edge = 0;
-    if (!mcb_matches) {
-        save_to_folder("BCM_no_face", g, *id);
-        edge_change_nb_appearence = edge_two_and_three_appearence(g, g->minimals_basis);
-        diff_edge = diff_edge_occur(g, g->minimals_basis);
-        if (edges_ok) save_to_folder("BCM_no_face_interesting", g, *id);
-        if (edge_change_nb_appearence) save_to_folder("No_BCM_face_1_edge_can_appear_2_or_3", g, *id);
-        if (diff_edge) save_to_folder("No_BCM_face_all_edges_appear_2_somtimes_3", g, *id);
-    }
-
-    if (nb_no_cofacial == 0 && !is_outerplanar)
-        save_to_folder("pour_chloe", g, *id);
-
-    fprintf(f,"%d,%d,%d,%d,%d,%d,%d,%d\n",
-    *id,
-    nb_vertex,
-    dfs->edge_count,
-    is_outerplanar,
-    mcb_matches,
-    edges_ok,
-    edge_change_nb_appearence,
-    diff_edge);
-
-    (*id)++;
-
-    /* ── Cleanup ──────────────────────────────────────────────── */
-    free_embedding_set(&embs);
-    free_dfs_graph(dfs);
-    delete_graph(g);
-    g = NULL;
-    }
+        for (int ei = 0; ei < embs.count; ei++)
+            fml_free(&cached_faces[ei]);
+        free(cached_faces);
+        g = NULL;
+        }
 }
 
 int main(void) {
@@ -696,16 +1297,15 @@ int main(void) {
     setvbuf(stderr, NULL, _IONBF, 0);
     srand((unsigned int)time(NULL));
 
-    FILE *f = fopen("graphs.csv", "w");
+    FILE *f = fopen("graphs.csv", "a");
 
-    fprintf(f,
-    "id,|V|,|E|,is_outerplanar,faces_can_be_MCB, max_appearence_edge_always_2,"
-    "1_edge_can_appear_2_or_3,all_edges_appear_2_somtimes_3\n");
+    // fprintf(f, "id,|V|,|E|,is_outerplanar,faces_can_be_MCB, all_bases_edges_at_most_2, "
+    //            "all_maps_are_MCB, MCB_is_always_map, nb_BCM, nb_map_is_BCM, nb_map, nb_map_is_BCM/nb_map, triangule\n");
 
     int id = 0;
-    for (int n = 6; n <= 14; n++) {
+    for (int n = 25; n <= 30; n++) {
         printf( "n = %d ...\n", n);
-        study_graph(n, 1000, &id, f);
+        study_graph(n, 50, &id, f);
     }
 
     fclose(f);
