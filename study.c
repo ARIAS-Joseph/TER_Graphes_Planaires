@@ -90,6 +90,17 @@ int popcount64(uint64_t x) {
  */
 static int embedding_faces_are_mcb(const FaceList *faces, const int D, const int mcb_weight) {
 
+    printf("faces ptr=%p count=%d\n", (void*)faces, faces->count);
+
+    printf("MCB input face count = %d\n", faces->count);
+
+    for(int i=0;i<faces->count;i++)
+    {
+        printf("face %d length=%d\n",
+               i,
+               popcount64(faces->edges_masks[i]));
+    }
+
     if (faces->count != D + 1) {
         printf("embedding_faces_are_mcb: face count %d != basis dimension + 1 (%d)\n",
                faces->count, D + 1);
@@ -666,6 +677,7 @@ static int all_bases_are_maps(const Graph *g, const DfsGraph *dfs, const Embeddi
     if (!all_face_lists) { perror("all_bases_are_maps"); exit(EXIT_FAILURE); }
 
     for (int ei = 0; ei < embs->count; ei++)
+
         all_face_lists[ei] = trace_faces(dfs, &embs->embeddings[ei]);
 
     int all_match = 1;
@@ -1154,10 +1166,27 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, FILE *f) {
         FaceList *cached_faces = malloc(embs.count * sizeof(FaceList));
         for (int ei = 0; ei < embs.count; ei++)
             cached_faces[ei] = trace_faces(dfs, &embs.embeddings[ei]);
+            printf("trace_faces returned count=%d\n", cached_faces->count);
 
         for (int ei = 0; ei < embs.count; ei++) {
 
             FaceList faces = cached_faces[ei];
+
+            printf("embedding %d : faces=%d D=%d\n",
+       ei,
+       faces.count,
+       g->basis_dimension);
+
+            printf("before MCB count=%d\n", faces.count);
+
+            printf("before MCB ptr=%p count=%d\n", (void*)&faces, faces.count);
+
+            int expected_faces = dfs->edge_count - dfs->vertices_count + 2;
+
+            if (faces.count != expected_faces) {
+                fml_free(&faces);
+                continue;
+            }
 
             int face_are_mcb = embedding_faces_are_mcb(&faces, g->basis_dimension, mcb_weight);
             if (face_are_mcb == -1) { error = 1; break; }
@@ -1303,7 +1332,7 @@ int main(void) {
     //            "all_maps_are_MCB, MCB_is_always_map, nb_BCM, nb_map_is_BCM, nb_map, nb_map_is_BCM/nb_map, triangule\n");
 
     int id = 0;
-    for (int n = 25; n <= 30; n++) {
+    for (int n = 15; n <= 30; n++) {
         printf( "n = %d ...\n", n);
         study_graph(n, 50, &id, f);
     }

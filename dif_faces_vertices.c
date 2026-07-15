@@ -9,6 +9,7 @@
  *  planar embedding contains all vertices of S.
  */
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -86,8 +87,19 @@ void fml_free(FaceList *l) {
  * @param v Known endpoint.
  * @return The opposite endpoint of v according to arc e.
  */
-int other_endpoint(const DfsGraph *dfs, const int e, const int v) {
-    return (dfs->edges[e].from == v) ? dfs->edges[e].to : dfs->edges[e].from;
+int other_endpoint(const DfsGraph *dfs, int e, int v)
+{
+    if (dfs->edges[e].from == v)
+        return dfs->edges[e].to;
+
+    if (dfs->edges[e].to == v)
+        return dfs->edges[e].from;
+
+    printf("ERROR: vertex %d is not incident to edge %d (%d,%d)\n",
+           v, e,
+           dfs->edges[e].from,
+           dfs->edges[e].to);
+    abort();
 }
 
 /**
@@ -136,27 +148,34 @@ int arc_position(const PlanarEmbedding *emb, const int v, const int e) {
  */
 FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
 
-    const int n   = emb->n;
-    const int m   = dfs->edge_count;
+    const int n = emb->n;
+    const int m = dfs->edge_count;
+
+    for (int v = 0; v < n; v++) {
+        printf("rotation[%d] :", v);
+        for (int i = 0; i < emb->rotation_lengths[v]; i++)
+            printf(" %d", emb->rotation_system[v][i]);
+        printf("\n");
+    }
 
     /* ── Validation 1 : somme des degrés = 2m ──────────────────────────── */
     int total_rotation = 0;
     for (int v = 0; v < n; v++) total_rotation += emb->rotation_lengths[v];
     if (total_rotation != 2 * m)
-        fprintf(stderr,
+        printf(
             "[trace_faces] SOMME ROTATIONS %d != 2*m=%d\n",
             total_rotation, 2 * m);
 
     /* ── Validation 2 : chaque arc apparaît exactement à from ET à to ──── */
     /* (l'ancienne version remplissait arc_occurrences mais n'imprimait rien) */
     int *arc_at_from = calloc(m, sizeof(int));
-    int *arc_at_to   = calloc(m, sizeof(int));
+    int *arc_at_to = calloc(m, sizeof(int));
 
     for (int v = 0; v < n; v++) {
         for (int ai = 0; ai < emb->rotation_lengths[v]; ai++) {
             int e = emb->rotation_system[v][ai];
             if (e < 0 || e >= m) {
-                fprintf(stderr,
+                printf(
                     "[trace_faces] ARC HORS BORNES : rotation[%d][%d]=%d "
                     "(edge_count=%d)\n", v, ai, e, m);
                 continue;
@@ -164,7 +183,7 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
             if (dfs->edges[e].from == v) arc_at_from[e]++;
             else if (dfs->edges[e].to == v) arc_at_to[e]++;
             else
-                fprintf(stderr,
+                printf(
                     "[trace_faces] ARC MAL PLACE : arc %d (from=%d to=%d) "
                     "dans rotation[%d]\n",
                     e, dfs->edges[e].from, dfs->edges[e].to, v);
@@ -173,12 +192,12 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
 
     for (int e = 0; e < m; e++) {
         if (arc_at_from[e] != 1)
-            fprintf(stderr,
+            printf(
                 "[trace_faces] Arc %d (from=%d to=%d) : "
                 "present %d fois côté FROM (attendu 1)\n",
                 e, dfs->edges[e].from, dfs->edges[e].to, arc_at_from[e]);
         if (arc_at_to[e] != 1)
-            fprintf(stderr,
+            printf(
                 "[trace_faces] Arc %d (from=%d to=%d) : "
                 "present %d fois côté TO (attendu 1)\n",
                 e, dfs->edges[e].from, dfs->edges[e].to, arc_at_to[e]);
@@ -204,13 +223,16 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
             if (visited[start_v][start_ai]) continue;
 
             uint64_t face_mask_vertices = 0;
-            uint64_t face_mask_edges    = 0;
-            int v  = start_v;
+            uint64_t face_mask_edges = 0;
+            int v = start_v;
             int ai = start_ai;
             int iters = 0;
             int ok = 1;
 
+            int face_len = 0;
+
             do {
+                face_len++;
                 if (++iters > max_iters) {
                     ok = 0;
                     break;
@@ -219,35 +241,130 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
                 visited[v][ai] = 1;
                 face_mask_vertices |= (1ULL << v);
 
-                const int e  = emb->rotation_system[v][ai];
-                const int w  = other_endpoint(dfs, e, v);
+                const int e = emb->rotation_system[v][ai];
+
+                printf("v=%d ai=%d e=%d from=%d to=%d\n",
+                       v,
+                       ai,
+                       e,
+                       dfs->edges[e].from,
+                       dfs->edges[e].to);
+
+                const int w = other_endpoint(dfs,e,v);
+
+                printf("   w=%d\n", w);
                 const int bi = arc_position(emb, w, e);
+
+                if (bi < 0) {
+                    printf("edge %d not found in rotation of vertex %d\n", e, v);
+                    abort();
+                }
 
                 if (bi == -1) {
                     ok = 0;
                     break;
                 }
 
-                const int deg_w   = emb->rotation_lengths[w];
-                const int next_ai = (bi - 1 + deg_w) % deg_w;
+                const int deg_w = emb->rotation_lengths[w];
+                const int next_ai = (bi + 1) % deg_w;
 
-                face_mask_edges |=
-                    (1ULL << dfs->edge_indices[v * dfs->vertices_count + w]);
+                int deg_w2 = 0;
 
-                v  = w;
+                for (int e = 0; e < dfs->edge_count; e++) {
+                    if (dfs->edges[e].from == w || dfs->edges[e].to == w) {
+                        deg_w2++;
+                    }
+                }
+
+                printf("w=%d e=%d bi=%d deg rotation=%d def defs=%d\n", w, e, bi, deg_w, deg_w2);
+
+                assert(bi >= 0);
+                assert(bi < deg_w);
+                assert(emb->rotation_system[w][bi] == e);
+                assert(deg_w2 == deg_w);
+
+                int idx = dfs->edge_indices[v * dfs->vertices_count + w];
+
+                if (idx < 0 || idx >= 64) {
+                    printf("BAD EDGE INDEX: v=%d w=%d idx=%d\n",
+                           v, w, idx);
+                    abort();
+                }
+
+                face_mask_edges |= (1ULL << idx);
+
+                printf("dart=%d  %d->%d  edgeidx=%d\n", e, v, w, dfs->edge_indices[v*n+w]);
+
+                v = w;
                 ai = next_ai;
 
             } while (v != start_v || ai != start_ai);
 
-            if (ok)
+            if (ok) {
+                printf("FACE %d length=%d\n", faces.count+1, popcount64(face_mask_edges));
                 face_list_push(&faces, face_mask_vertices, face_mask_edges);
+                printf("FACE %d darts=%d edges=%d\n", faces.count + 1, face_len, popcount64(face_mask_edges));
+            }
             /* Si !ok : on ne pousse pas la face tronquée, et les darts
              * non-visités seront repris par la boucle externe normalement. */
         }
     }
 
+    int visited_count = 0;
+
+    for (int v = 0; v < dfs->vertices_count; ++v)
+        for (int s = 0; s < emb->rotation_lengths[v]; ++s)
+            if (visited[v][s])
+                visited_count++;
+
+    printf("visited darts = %d / %d\n",
+           visited_count,
+           2 * dfs->edge_count);
+
     for (int v = 0; v < n; v++) free(visited[v]);
     free(visited);
+
+    int total = 0;
+    for (int v = 0; v < n; v++)
+        total += emb->rotation_lengths[v];
+
+    printf("total darts=%d expected=%d\n", total, 2 * dfs->edge_count);
+
+    int sum_face_lengths = 0;
+
+    for (int f = 0; f < faces.count; f++) {
+        uint64_t m = faces.edges_masks[f];
+
+        int len = 0;
+        while (m) {
+            m &= m - 1;
+            len++;
+        }
+
+        sum_face_lengths += len;
+    }
+
+    printf("faces=%d sum=%d expected=%d\n",
+           faces.count,
+           sum_face_lengths,
+           2 * dfs->edge_count);
+
+    int total2 = 0;
+    for (int i = 0; i < faces.count; i++) {
+        printf("stored face %d length=%d\n",
+               i,
+               popcount64(faces.edges_masks[i]),
+        total2 += popcount64(faces.edges_masks[i]));
+    }
+    printf("total=%d\n", total2);
+
+    int expected_faces = dfs->edge_count - dfs->vertices_count + 2;
+
+    if (faces.count != expected_faces) {
+        printf("INVALID EMBEDDING : faces=%d expected=%d\n",
+               faces.count,
+               expected_faces);
+    }
 
     return faces;
 }
