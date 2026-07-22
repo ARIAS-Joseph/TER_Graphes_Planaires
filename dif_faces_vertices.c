@@ -95,10 +95,10 @@ int other_endpoint(const DfsGraph *dfs, int e, int v)
     if (dfs->edges[e].to == v)
         return dfs->edges[e].from;
 
-    printf("ERROR: vertex %d is not incident to edge %d (%d,%d)\n",
-           v, e,
-           dfs->edges[e].from,
-           dfs->edges[e].to);
+    // printf("ERROR: vertex %d is not incident to edge %d (%d,%d)\n",
+    //        v, e,
+    //        dfs->edges[e].from,
+    //        dfs->edges[e].to);
     abort();
 }
 
@@ -151,20 +151,20 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
     const int n = emb->n;
     const int m = dfs->edge_count;
 
-    for (int v = 0; v < n; v++) {
-        printf("rotation[%d] :", v);
-        for (int i = 0; i < emb->rotation_lengths[v]; i++)
-            printf(" %d", emb->rotation_system[v][i]);
-        printf("\n");
-    }
+    // for (int v = 0; v < n; v++) {
+    //     printf("rotation[%d] :", v);
+    //     for (int i = 0; i < emb->rotation_lengths[v]; i++)
+    //         printf(" %d", emb->rotation_system[v][i]);
+    //     printf("\n");
+    // }
 
     /* ── Validation 1 : somme des degrés = 2m ──────────────────────────── */
     int total_rotation = 0;
     for (int v = 0; v < n; v++) total_rotation += emb->rotation_lengths[v];
-    if (total_rotation != 2 * m)
-        printf(
-            "[trace_faces] SOMME ROTATIONS %d != 2*m=%d\n",
-            total_rotation, 2 * m);
+    // if (total_rotation != 2 * m)
+    //     printf(
+    //         "[trace_faces] SOMME ROTATIONS %d != 2*m=%d\n",
+    //         total_rotation, 2 * m);
 
     /* ── Validation 2 : chaque arc apparaît exactement à from ET à to ──── */
     /* (l'ancienne version remplissait arc_occurrences mais n'imprimait rien) */
@@ -175,33 +175,33 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
         for (int ai = 0; ai < emb->rotation_lengths[v]; ai++) {
             int e = emb->rotation_system[v][ai];
             if (e < 0 || e >= m) {
-                printf(
-                    "[trace_faces] ARC HORS BORNES : rotation[%d][%d]=%d "
-                    "(edge_count=%d)\n", v, ai, e, m);
+                // printf(
+                //     "[trace_faces] ARC HORS BORNES : rotation[%d][%d]=%d "
+                //     "(edge_count=%d)\n", v, ai, e, m);
                 continue;
             }
             if (dfs->edges[e].from == v) arc_at_from[e]++;
             else if (dfs->edges[e].to == v) arc_at_to[e]++;
-            else
-                printf(
-                    "[trace_faces] ARC MAL PLACE : arc %d (from=%d to=%d) "
-                    "dans rotation[%d]\n",
-                    e, dfs->edges[e].from, dfs->edges[e].to, v);
+            // else
+                // printf(
+                //     "[trace_faces] ARC MAL PLACE : arc %d (from=%d to=%d) "
+                //     "dans rotation[%d]\n",
+                //     e, dfs->edges[e].from, dfs->edges[e].to, v);
         }
     }
 
-    for (int e = 0; e < m; e++) {
-        if (arc_at_from[e] != 1)
-            printf(
-                "[trace_faces] Arc %d (from=%d to=%d) : "
-                "present %d fois côté FROM (attendu 1)\n",
-                e, dfs->edges[e].from, dfs->edges[e].to, arc_at_from[e]);
-        if (arc_at_to[e] != 1)
-            printf(
-                "[trace_faces] Arc %d (from=%d to=%d) : "
-                "present %d fois côté TO (attendu 1)\n",
-                e, dfs->edges[e].from, dfs->edges[e].to, arc_at_to[e]);
-    }
+    // for (int e = 0; e < m; e++) {
+    //     if (arc_at_from[e] != 1)
+    //         printf(
+    //             "[trace_faces] Arc %d (from=%d to=%d) : "
+    //             "present %d fois côté FROM (attendu 1)\n",
+    //             e, dfs->edges[e].from, dfs->edges[e].to, arc_at_from[e]);
+    //     if (arc_at_to[e] != 1)
+    //         printf(
+    //             "[trace_faces] Arc %d (from=%d to=%d) : "
+    //             "present %d fois côté TO (attendu 1)\n",
+    //             e, dfs->edges[e].from, dfs->edges[e].to, arc_at_to[e]);
+    // }
 
     free(arc_at_from);
     free(arc_at_to);
@@ -243,20 +243,20 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
 
                 const int e = emb->rotation_system[v][ai];
 
-                printf("v=%d ai=%d e=%d from=%d to=%d\n",
-                       v,
-                       ai,
-                       e,
-                       dfs->edges[e].from,
-                       dfs->edges[e].to);
+                // printf("v=%d ai=%d e=%d from=%d to=%d\n",
+                //        v,
+                //        ai,
+                //        e,
+                //        dfs->edges[e].from,
+                //        dfs->edges[e].to);
 
                 const int w = other_endpoint(dfs,e,v);
 
-                printf("   w=%d\n", w);
+                // printf("   w=%d\n", w);
                 const int bi = arc_position(emb, w, e);
 
                 if (bi < 0) {
-                    printf("edge %d not found in rotation of vertex %d\n", e, v);
+                    // printf("edge %d not found in rotation of vertex %d\n", e, v);
                     abort();
                 }
 
@@ -276,7 +276,7 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
                     }
                 }
 
-                printf("w=%d e=%d bi=%d deg rotation=%d def defs=%d\n", w, e, bi, deg_w, deg_w2);
+                // printf("w=%d e=%d bi=%d deg rotation=%d def defs=%d\n", w, e, bi, deg_w, deg_w2);
 
                 assert(bi >= 0);
                 assert(bi < deg_w);
@@ -286,14 +286,14 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
                 int idx = dfs->edge_indices[v * dfs->vertices_count + w];
 
                 if (idx < 0 || idx >= 64) {
-                    printf("BAD EDGE INDEX: v=%d w=%d idx=%d\n",
-                           v, w, idx);
+                    // printf("BAD EDGE INDEX: v=%d w=%d idx=%d\n",
+                    //        v, w, idx);
                     abort();
                 }
 
                 face_mask_edges |= (1ULL << idx);
 
-                printf("dart=%d  %d->%d  edgeidx=%d\n", e, v, w, dfs->edge_indices[v*n+w]);
+                // printf("dart=%d  %d->%d  edgeidx=%d\n", e, v, w, dfs->edge_indices[v*n+w]);
 
                 v = w;
                 ai = next_ai;
@@ -301,9 +301,9 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
             } while (v != start_v || ai != start_ai);
 
             if (ok) {
-                printf("FACE %d length=%d\n", faces.count+1, popcount64(face_mask_edges));
+                // printf("FACE %d length=%d\n", faces.count+1, popcount64(face_mask_edges));
                 face_list_push(&faces, face_mask_vertices, face_mask_edges);
-                printf("FACE %d darts=%d edges=%d\n", faces.count + 1, face_len, popcount64(face_mask_edges));
+                // printf("FACE %d darts=%d edges=%d\n", faces.count + 1, face_len, popcount64(face_mask_edges));
             }
             /* Si !ok : on ne pousse pas la face tronquée, et les darts
              * non-visités seront repris par la boucle externe normalement. */
@@ -317,9 +317,7 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
             if (visited[v][s])
                 visited_count++;
 
-    printf("visited darts = %d / %d\n",
-           visited_count,
-           2 * dfs->edge_count);
+    // printf("visited darts = %d / %d\n", visited_count, 2 * dfs->edge_count);
 
     for (int v = 0; v < n; v++) free(visited[v]);
     free(visited);
@@ -328,7 +326,7 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
     for (int v = 0; v < n; v++)
         total += emb->rotation_lengths[v];
 
-    printf("total darts=%d expected=%d\n", total, 2 * dfs->edge_count);
+    // printf("total darts=%d expected=%d\n", total, 2 * dfs->edge_count);
 
     int sum_face_lengths = 0;
 
@@ -344,27 +342,23 @@ FaceList trace_faces(const DfsGraph *dfs, const PlanarEmbedding *emb) {
         sum_face_lengths += len;
     }
 
-    printf("faces=%d sum=%d expected=%d\n",
-           faces.count,
-           sum_face_lengths,
-           2 * dfs->edge_count);
+    // printf("faces=%d sum=%d expected=%d\n", faces.count, sum_face_lengths,2 * dfs->edge_count);
 
     int total2 = 0;
-    for (int i = 0; i < faces.count; i++) {
-        printf("stored face %d length=%d\n",
-               i,
-               popcount64(faces.edges_masks[i]),
-        total2 += popcount64(faces.edges_masks[i]));
-    }
-    printf("total=%d\n", total2);
+    // for (int i = 0; i < faces.count; i++) {
+    //     printf("stored face %d length=%d\n", i,
+    //            popcount64(faces.edges_masks[i]),
+    //     total2 += popcount64(faces.edges_masks[i]));
+    // }
+    // printf("total=%d\n", total2);
 
     int expected_faces = dfs->edge_count - dfs->vertices_count + 2;
 
-    if (faces.count != expected_faces) {
-        printf("INVALID EMBEDDING : faces=%d expected=%d\n",
-               faces.count,
-               expected_faces);
-    }
+    // if (faces.count != expected_faces) {
+    //     printf("INVALID EMBEDDING : faces=%d expected=%d\n",
+    //            faces.count,
+    //            expected_faces);
+    // }
 
     return faces;
 }
@@ -495,10 +489,10 @@ void search_rec(const int n, const int start, const int remaining, const uint64_
  */
 void find_minimal_never_cofacial(const int nb_vertices, const int nb_edges, const FaceList *all_faces) {
     if (nb_vertices < 2) {
-        printf("\nFewer than 2 vertices: search not applicable.\n"); return;
+        // printf("\nFewer than 2 vertices: search not applicable.\n"); return;
     }
     if (nb_vertices > 64 || nb_edges > 64) {
-        printf("\nMore than 64 vertices and/or edges: uint64_t encoding is insufficient.\n");
+        // printf("\nMore than 64 vertices and/or edges: uint64_t encoding is insufficient.\n");
         return;
     }
 
@@ -508,15 +502,15 @@ void find_minimal_never_cofacial(const int nb_vertices, const int nb_edges, cons
         search_rec(nb_vertices, 0, k, 0, &ctx);
     }
 
-    printf("\n");
-    if (ctx.nb_minimal == 0) {
-        printf("No vertex set of size >= 2 satisfies the condition");
-    } else {
-        printf("%d minimal set(s) found :\n", ctx.nb_minimal);
-        for (int i = 0; i < ctx.nb_minimal; i++) {
-            print_face_mask(ctx.minimal[i], nb_vertices);
-        }
-    }
+    // printf("\n");
+    // if (ctx.nb_minimal == 0) {
+    //     printf("No vertex set of size >= 2 satisfies the condition");
+    // } else {
+    //     printf("%d minimal set(s) found :\n", ctx.nb_minimal);
+    //     for (int i = 0; i < ctx.nb_minimal; i++) {
+    //         print_face_mask(ctx.minimal[i], nb_vertices);
+    //     }
+    // }
 
     free(ctx.minimal);
 }
