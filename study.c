@@ -907,11 +907,11 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, FILE *f) {
 
         char filename[1024];
         snprintf(filename, sizeof(filename), "%d_v(%d)_e(%d)_outer(%d)_halin(%d)_wheel(%d)"
-                                             "_wheelSize(%d)_maxEdges(%d)_sparseMCBNotMap(%d)_ratio(%d)_nbMCB(%d)",
+                                             "_wheelSize(%d)_maxEdges(%d)_sparseMCBNotMap(%d)_ratio(%d)_nbMCB(%d)_map(%d)_mapBCM(%d)",
                                              *id, dfs->vertices_count,
                                              dfs->edge_count, is_outerplanar, is_halin, is_wheel, is_wheel ? g->nb_vertices - 1 : -1, has_max_edges, has_sparse_not_map,
                                              (int)(100.0f * nb_map_is_bcm / (float)(embs.count * (g->basis_dimension + 1))),
-                                             g->nb_minimal_bases);
+                                             g->nb_minimal_bases, embs.count * (g->basis_dimension + 1), nb_map_is_bcm);
 
         if (!at_least_one_map_is_MCB) {
             save_to_folder("no_map_is_BCM", g, filename);
@@ -946,7 +946,7 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, FILE *f) {
             else save_to_folder("several_maps_are_BCM_and_all_BCM_are_map", g, filename);
         }
 
-        fprintf(f,"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%d\n",
+        fprintf(f,"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%d,%d,%d\n",
         *id,
         dfs->vertices_count,
         dfs->edge_count,
@@ -961,7 +961,9 @@ void study_graph(const int nb_vertex, const int nb_tests, int *id, FILE *f) {
         nb_map_is_bcm == 0,
         nb_map_is_bcm == 1,
         ratio,
-        g->nb_minimal_bases);
+        g->nb_minimal_bases,
+        embs.count * (g->basis_dimension + 1),
+        nb_map_is_bcm);
 
         fflush(f);
 
@@ -984,12 +986,12 @@ int main(void) {
 
     FILE *f = fopen("graphs.csv", "w");
 
-    fprintf(f, "id,|V|,|E|,is_outerplanar,is_halin,is_wheel,size_wheel,has_max_edges,has_sparse_MCB_not_map,All_maps_are_MCB,All_BCM_are_map,None_map_MCB,Only_one_map_MCB, nb_map_is_MCB / nb_map, nb_MCB\n");
+    fprintf(f, "id,|V|,|E|,is_outerplanar,is_halin,is_wheel,size_wheel,has_max_edges,has_sparse_MCB_not_map,All_maps_are_MCB,All_BCM_are_map,None_map_MCB,Only_one_map_MCB, nb_map_is_MCB / nb_map, nb_MCB, nb_map, nb_map_BCM\n");
 
     int id = 0;
     for (int n = 20; n <= 25; n++) {
         printf( "n = %d ...\n", n);
-        study_graph(n, 1000, &id, f);
+        study_graph(n, 500, &id, f);
     }
 
     fclose(f);
